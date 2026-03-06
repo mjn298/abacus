@@ -9,3 +9,7 @@ bin/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Node.js scanner packages
+node_modules/
+dist/
