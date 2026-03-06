@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+import { readFileSync } from 'fs';
+import { parseReactRouterPages } from './parser.js';
+import type { ScanInput } from './types.js';
+
+const raw = readFileSync('/dev/stdin', 'utf8');
+const input: ScanInput = JSON.parse(raw);
+const result = await parseReactRouterPages(input.projectRoot, input.options);
+process.stdout.write(JSON.stringify(result));

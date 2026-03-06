@@ -1,0 +1,22 @@
+{
+  "name": "@abacus/scanner-react-router",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "abacus-scanner-react-router": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ts-morph": "^24.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
