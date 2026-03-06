@@ -8,4 +8,7 @@
 {"key":"compact_tier2_dep_levels","value":"5"}
 {"key":"compaction_enabled","value":"false"}
 {"key":"issue_prefix","value":"aba"}
+{"key":"linear.last_sync","value":"2026-03-06T20:34:20Z"}
+{"key":"linear.project_id","value":"e3dfeb84-9b32-443c-b183-8ad9c1e55c88"}
+{"key":"linear.team_id","value":"1f3668c6-2210-4796-94f2-40c6a644f2a9"}
 {"key":"schema_version","value":"6"}
