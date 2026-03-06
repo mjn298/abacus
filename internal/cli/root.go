@@ -6,6 +6,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Global flags
+var (
+	jsonOutput bool
+	dbPath     string
+	quiet      bool
+	verbose    bool
+)
+
 var Version = "dev"
 
 var rootCmd = &cobra.Command{
@@ -20,6 +28,11 @@ func Execute() error {
 }
 
 func init() {
+	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db", ".abacus/abacus.db", "Path to the database file")
+	rootCmd.PersistentFlags().BoolVar(&quiet, "quiet", false, "Suppress non-essential output")
+	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose output")
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.SetVersionTemplate("abacus {{.Version}}\n")
 }

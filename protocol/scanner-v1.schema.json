@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mjn/abacus/protocol/scanner-v1.schema.json",
+  "title": "Abacus Scanner Protocol v1 — ScanOutput",
+  "description": "JSON schema for the output document that an Abacus scanner writes to stdout. Scanners receive a ScanInput JSON on stdin and must produce a conforming ScanOutput on stdout, then exit 0.",
+  "type": "object",
+  "required": ["version", "scanner", "nodes", "edges", "warnings", "stats"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Protocol version. Must be 1."
+    },
+    "scanner": {
+      "$ref": "#/$defs/ScannerInfo"
+    },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ScanNode" },
+      "description": "Discovered nodes in the application graph."
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ScanEdge" },
+      "description": "Discovered edges between nodes."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ScanWarning" },
+      "description": "Non-fatal issues encountered during scanning."
+    },
+    "stats": {
+      "$ref": "#/$defs/ScanStats"
+    }
+  },
+  "$defs": {
+    "ScannerInfo": {
+      "type": "object",
+      "required": ["id", "name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier for this scanner (e.g. 'nextjs-scanner')."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name."
+        },
+        "version": {
+          "type": "string",
+          "description": "Scanner version (semver recommended)."
+        }
+      }
+    },
+    "ScanNode": {
+      "type": "object",
+      "required": ["id", "kind", "name", "label", "properties", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique node identifier (e.g. 'route:/api/users')."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["route", "entity", "page", "action", "permission"],
+          "description": "The type of application concept this node represents."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short name for the node."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable label for display."
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Arbitrary scanner-specific properties."
+        },
+        "source": {
+          "type": "string",
+          "description": "How this node was discovered (typically 'scan')."
+        },
+        "sourceFile": {
+          "type": "string",
+          "description": "File path where this node was found, relative to project root."
+        }
+      }
+    },
+    "ScanEdge": {
+      "type": "object",
+      "required": ["id", "srcId", "dstId", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique edge identifier."
+        },
+        "srcId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ID of the source node (must exist in nodes array)."
+        },
+        "dstId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ID of the destination node (must exist in nodes array)."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["uses_route", "touches_entity", "on_page", "requires_permission", "relates_to", "field_relation"],
+          "description": "The type of relationship this edge represents."
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Arbitrary scanner-specific edge properties."
+        }
+      }
+    },
+    "ScanWarning": {
+      "type": "object",
+      "required": ["file", "message", "severity"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "File where the warning occurred."
+        },
+        "line": {
+          "type": "integer",
+          "description": "Line number (optional)."
+        },
+        "message": {
+          "type": "string",
+          "description": "Warning message."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["info", "warning", "error"],
+          "description": "Severity level."
+        }
+      }
+    },
+    "ScanStats": {
+      "type": "object",
+      "required": ["filesScanned", "nodesFound", "edgesFound", "errors", "durationMs"],
+      "additionalProperties": false,
+      "properties": {
+        "filesScanned": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of source files the scanner processed."
+        },
+        "nodesFound": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of graph nodes discovered."
+        },
+        "edgesFound": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of graph edges discovered."
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of non-fatal errors encountered."
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Scanner execution time in milliseconds."
+        }
+      }
+    }
+  }
+}
