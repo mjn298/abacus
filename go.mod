@@ -9,6 +9,7 @@ require (
 )
 
 require (
+	github.com/cucumber/cucumber-expressions/go/v16 v16.1.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
