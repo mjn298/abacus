@@ -10,6 +10,7 @@
 {"key":"issue_prefix","value":"aba"}
 {"key":"kv.active_handoff","value":"aba-zca"}
 {"key":"kv.memory.fact-abacus-project-uses-go-mod-module-path","value":"FACT: Abacus project uses go.mod module path github.com/mjn/abacus. Cobra CLI with Version injected via ldflags. Config loaded from .abacus/config.yaml with YAML v3. Makefile targets: build, install, test, lint, clean."}
+{"key":"kv.memory.fact-abacus-sqlite-schema-uses-modernc-org-sqlite","value":"FACT: Abacus SQLite schema uses modernc.org/sqlite v1.46.1 (pure Go). Tables: nodes (5 kinds, JSON properties, FTS5 triggers), edges (adjacency list, UNIQUE(src,dst,kind), CASCADE delete), schema_version. Pragmas: WAL, NORMAL sync, FK ON, 64MB cache, 5s busy timeout."}
 {"key":"kv.memory.fact-in-claude-code-sandbox-go-module-cache","value":"FACT: In Claude Code sandbox, Go module cache at ~/go/pkg is read-only. Set GOMODCACHE to a project-local .gomodcache/ dir (already in .gitignore) with GONOSUMDB=* GONOSUMCHECK=*. Do NOT rely on /tmp/.claude_scratch existing — it's not available in CI."}
 {"key":"linear.last_sync","value":"2026-03-06T20:34:20Z"}
 {"key":"linear.project_id","value":"e3dfeb84-9b32-443c-b183-8ad9c1e55c88"}
