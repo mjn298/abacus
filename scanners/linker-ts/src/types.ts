@@ -14,6 +14,7 @@ export interface ScanInput {
   options: {
     maxDepth?: number;
     tsConfigPath?: string;
+    tsconfig?: string;
   };
   ignorePaths?: string[];
   existingNodes?: ScanNodeRef[];

@@ -3,7 +3,7 @@ import { findPrismaAccesses } from "./matcher.js";
 
 export interface TraceResult {
   /** entityNodeId → array of filenames traversed to reach it */
-  entities: Map<string, string[]>;
+  entities: Map<string, { tracePath: string[]; depth: number }>;
   /** total number of unique files visited */
   filesVisited: number;
 }
@@ -28,7 +28,7 @@ export function traceImports(
 ): TraceResult {
   const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
   const visited = new Set<string>();
-  const entities = new Map<string, string[]>();
+  const entities = new Map<string, { tracePath: string[]; depth: number }>();
 
   function traceFile(
     file: SourceFile,
@@ -39,7 +39,25 @@ export function traceImports(
 
     const remainingDepth = maxDepth - depth;
 
-    if (depth > maxDepth || visited.has(filePath)) {
+    if (depth > maxDepth) {
+      return new Set();
+    }
+
+    // Already visited in this trace — return cached entities if available.
+    // The visited set prevents infinite recursion for circular imports,
+    // but we must still return known entities for files that were already
+    // fully explored earlier in this trace (e.g., shared dependencies
+    // reached through multiple import paths).
+    if (visited.has(filePath)) {
+      const cached = fileEntityCache.get(filePath);
+      if (cached) {
+        for (const entityId of cached.entities) {
+          if (!entities.has(entityId)) {
+            entities.set(entityId, { tracePath: [...currentPath, filePath], depth });
+          }
+        }
+        return cached.entities;
+      }
       return new Set();
     }
 
@@ -55,7 +73,7 @@ export function traceImports(
     if (cached && remainingDepth <= cached.remainingDepth) {
       for (const entityId of cached.entities) {
         if (!entities.has(entityId)) {
-          entities.set(entityId, pathWithFile);
+          entities.set(entityId, { tracePath: pathWithFile, depth });
         }
       }
       visited.add(filePath);
@@ -72,7 +90,7 @@ export function traceImports(
     for (const entityId of matchedEntityIds) {
       allEntities.add(entityId);
       if (!entities.has(entityId)) {
-        entities.set(entityId, pathWithFile);
+        entities.set(entityId, { tracePath: pathWithFile, depth });
       }
     }
 
