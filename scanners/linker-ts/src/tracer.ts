@@ -2,7 +2,13 @@ import type { SourceFile } from "ts-morph";
 import { findPrismaAccesses } from "./matcher.js";
 
 export interface TraceResult {
-  /** entityNodeId → array of filenames traversed to reach it */
+  /**
+   * entityNodeId → { tracePath, depth } for the first-discovered path (DFS order).
+   * Uses first-discovered-wins semantics: if the same entity is reachable through
+   * multiple import paths, the path visited first by DFS is recorded. This is NOT
+   * necessarily the shortest path — DFS visit order depends on import declaration
+   * order in each source file.
+   */
   entities: Map<string, { tracePath: string[]; depth: number }>;
   /** total number of unique files visited */
   filesVisited: number;
@@ -12,7 +18,7 @@ export interface TraceOptions {
   maxDepth: number;
 }
 
-const DEFAULT_MAX_DEPTH = 8;
+export const DEFAULT_MAX_DEPTH = 8;
 
 const TEST_FILE_RE = /(?:\.test\.ts|\.spec\.ts|__tests__\/)/;
 

@@ -1127,6 +1127,68 @@ func TestGetNodeRefsByKinds_WithSourceFile(t *testing.T) {
 	}
 }
 
+func TestInsertEdge_PreservesCreatedAt(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	n1 := makeNode("n1", db.NodeRoute)
+	n2 := makeNode("n2", db.NodeEntity)
+	repo.InsertNode(n1)
+	repo.InsertNode(n2)
+
+	edge := &db.GraphEdge{
+		ID:         "e1",
+		SrcID:      "n1",
+		DstID:      "n2",
+		Kind:       db.EdgeUsesRoute,
+		Properties: map[string]any{"version": float64(1)},
+	}
+	if err := repo.InsertEdge(edge); err != nil {
+		t.Fatalf("first InsertEdge: %v", err)
+	}
+
+	var createdAt1 int64
+	if err := database.QueryRow("SELECT created_at FROM edges WHERE id = ?", "e1").Scan(&createdAt1); err != nil {
+		t.Fatalf("query created_at after first insert: %v", err)
+	}
+
+	// Wait to ensure unixepoch() would return a different value if created_at were reset
+	time.Sleep(1100 * time.Millisecond)
+
+	// Re-insert same edge ID with different properties
+	edge2 := &db.GraphEdge{
+		ID:         "e1",
+		SrcID:      "n1",
+		DstID:      "n2",
+		Kind:       db.EdgeUsesRoute,
+		Properties: map[string]any{"version": float64(2)},
+	}
+	if err := repo.InsertEdge(edge2); err != nil {
+		t.Fatalf("second InsertEdge: %v", err)
+	}
+
+	var createdAt2 int64
+	if err := database.QueryRow("SELECT created_at FROM edges WHERE id = ?", "e1").Scan(&createdAt2); err != nil {
+		t.Fatalf("query created_at after second insert: %v", err)
+	}
+
+	if createdAt1 != createdAt2 {
+		t.Errorf("created_at changed after re-insert: %d -> %d (should be preserved)", createdAt1, createdAt2)
+	}
+
+	// Verify the properties were actually updated
+	edges, err := repo.GetEdgesFrom("n1", nil)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].Properties["version"] != float64(2) {
+		t.Errorf("Properties[version] = %v, want 2", edges[0].Properties["version"])
+	}
+}
+
 func TestInsertNode_NilProperties(t *testing.T) {
 	database := setupTestDB(t)
 	repo := NewGraphRepository(database)

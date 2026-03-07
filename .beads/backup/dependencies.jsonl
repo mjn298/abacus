@@ -64,6 +64,9 @@
 {"created_at":"2026-03-06T21:06:50Z","created_by":"mjn","depends_on_id":"aba-zca.21","issue_id":"aba-zca.20","type":"relates-to"}
 {"created_at":"2026-03-06T21:06:38Z","created_by":"mjn","depends_on_id":"aba-zca","issue_id":"aba-zca.21","type":"parent-child"}
 {"created_at":"2026-03-06T21:06:50Z","created_by":"mjn","depends_on_id":"aba-zca.20","issue_id":"aba-zca.21","type":"relates-to"}
+{"created_at":"2026-03-07T17:28:41Z","created_by":"mjn","depends_on_id":"aba-zca.21","issue_id":"aba-zca.21.1","type":"parent-child"}
+{"created_at":"2026-03-07T17:29:05Z","created_by":"mjn","depends_on_id":"aba-zca.21","issue_id":"aba-zca.21.2","type":"parent-child"}
+{"created_at":"2026-03-07T17:29:06Z","created_by":"mjn","depends_on_id":"aba-zca.21.1","issue_id":"aba-zca.21.2","type":"blocks"}
 {"created_at":"2026-03-06T15:51:40Z","created_by":"mjn","depends_on_id":"aba-zca","issue_id":"aba-zca.3","type":"parent-child"}
 {"created_at":"2026-03-06T15:51:44Z","created_by":"mjn","depends_on_id":"aba-zca.2","issue_id":"aba-zca.3","type":"blocks"}
 {"created_at":"2026-03-06T15:52:36Z","created_by":"mjn","depends_on_id":"aba-zca","issue_id":"aba-zca.4","type":"parent-child"}

@@ -121,8 +121,7 @@ func (r *GraphRepository) DeleteNode(id string) error {
 	return nil
 }
 
-// InsertEdge inserts a new edge. Returns an error if a duplicate
-// (src_id, dst_id, kind) already exists.
+// InsertEdge inserts or updates an edge by ID, preserving created_at on conflict.
 func (r *GraphRepository) InsertEdge(edge *db.GraphEdge) error {
 	props, err := db.MarshalProperties(edge.Properties)
 	if err != nil {
@@ -130,8 +129,14 @@ func (r *GraphRepository) InsertEdge(edge *db.GraphEdge) error {
 	}
 
 	_, err = r.database.Exec(
-		`INSERT OR REPLACE INTO edges (id, src_id, dst_id, kind, properties, source_scanner)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO edges (id, src_id, dst_id, kind, properties, source_scanner)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   src_id = excluded.src_id,
+		   dst_id = excluded.dst_id,
+		   kind = excluded.kind,
+		   properties = excluded.properties,
+		   source_scanner = excluded.source_scanner`,
 		edge.ID, edge.SrcID, edge.DstID, string(edge.Kind), props, edge.SourceScanner,
 	)
 	if err != nil {

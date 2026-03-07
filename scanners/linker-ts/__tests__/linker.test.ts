@@ -361,98 +361,122 @@ export function handle() { return findUsers(); }`,
     expect(result1.filesVisited).toBe(result2.filesVisited);
   });
 
-  describe("depth tracking", () => {
-    it("reports depth 0 for direct prisma access in entry file", () => {
-      const project = new Project({ useInMemoryFileSystem: true });
-      const handler = project.createSourceFile(
-        "/src/handler.ts",
-        `import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
-export function handler() { return prisma.user.findMany(); }`,
-      );
-
-      const result = traceImports(handler, entityByName);
-      expect(result.entities.get("entity:User")).toEqual({ tracePath: ["/src/handler.ts"], depth: 0 });
-    });
-
-    it("reports depth 1 for entity found one hop away", () => {
-      const project = new Project({ useInMemoryFileSystem: true });
-      project.createSourceFile(
-        "/src/service.ts",
-        `import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
-export function getUsers() { return prisma.user.findMany(); }`,
-      );
-      const handler = project.createSourceFile(
-        "/src/handler.ts",
-        `import { getUsers } from "./service";
-export function handle() { return getUsers(); }`,
-      );
-
-      const result = traceImports(handler, entityByName);
-      expect(result.entities.get("entity:User")).toEqual({
-        tracePath: ["/src/handler.ts", "/src/service.ts"],
-        depth: 1,
-      });
-    });
-
-    it("reports depth 2 for entity found two hops away", () => {
-      const project = new Project({ useInMemoryFileSystem: true });
-      project.createSourceFile(
-        "/src/repo.ts",
-        `import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
-export function findUsers() { return prisma.user.findMany(); }`,
-      );
-      project.createSourceFile(
-        "/src/service.ts",
-        `import { findUsers } from "./repo";
-export function getUsers() { return findUsers(); }`,
-      );
-      const handler = project.createSourceFile(
-        "/src/handler.ts",
-        `import { getUsers } from "./service";
-export function handle() { return getUsers(); }`,
-      );
-
-      const result = traceImports(handler, entityByName);
-      expect(result.entities.get("entity:User")).toEqual({
-        tracePath: ["/src/handler.ts", "/src/service.ts", "/src/repo.ts"],
-        depth: 2,
-      });
-    });
-
-    it("reports correct depth per entity in multi-entity traces", () => {
-      const project = new Project({ useInMemoryFileSystem: true });
-      project.createSourceFile(
-        "/src/repo.ts",
-        `import { PrismaClient } from "@prisma/client";
+  it("reports correct depth per entity in multi-entity traces", () => {
+    const project = new Project({ useInMemoryFileSystem: true });
+    project.createSourceFile(
+      "/src/repo.ts",
+      `import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 export function findPosts() { return prisma.post.findMany(); }`,
-      );
-      project.createSourceFile(
-        "/src/serviceA.ts",
-        `import { PrismaClient } from "@prisma/client";
+    );
+    project.createSourceFile(
+      "/src/serviceA.ts",
+      `import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 import { findPosts } from "./repo";
 export function getUsers() { return prisma.user.findMany(); }
 export function getPosts() { return findPosts(); }`,
-      );
-      const handler = project.createSourceFile(
-        "/src/handler.ts",
-        `import { getUsers, getPosts } from "./serviceA";
+    );
+    const handler = project.createSourceFile(
+      "/src/handler.ts",
+      `import { getUsers, getPosts } from "./serviceA";
 export function handle() { return { users: getUsers(), posts: getPosts() }; }`,
-      );
+    );
 
-      const result = traceImports(handler, entityByName);
-      expect(result.entities.get("entity:User")).toEqual({
-        tracePath: ["/src/handler.ts", "/src/serviceA.ts"],
-        depth: 1,
-      });
-      expect(result.entities.get("entity:Post")).toEqual({
-        tracePath: ["/src/handler.ts", "/src/serviceA.ts", "/src/repo.ts"],
-        depth: 2,
-      });
+    const result = traceImports(handler, entityByName);
+    expect(result.entities.get("entity:User")).toEqual({
+      tracePath: ["/src/handler.ts", "/src/serviceA.ts"],
+      depth: 1,
+    });
+    expect(result.entities.get("entity:Post")).toEqual({
+      tracePath: ["/src/handler.ts", "/src/serviceA.ts", "/src/repo.ts"],
+      depth: 2,
+    });
+  });
+
+  it("diamond import: first-discovered path wins when same entity reachable via two paths", () => {
+    const project = new Project({ useInMemoryFileSystem: true });
+
+    // Shared repo at the bottom of the diamond
+    project.createSourceFile(
+      "/src/repo.ts",
+      `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export function findUsers() { return prisma.user.findMany(); }`,
+    );
+
+    // Two services that both import repo
+    project.createSourceFile(
+      "/src/serviceA.ts",
+      `import { findUsers } from "./repo";
+export function getUsersA() { return findUsers(); }`,
+    );
+    project.createSourceFile(
+      "/src/serviceB.ts",
+      `import { findUsers } from "./repo";
+export function getUsersB() { return findUsers(); }`,
+    );
+
+    // Handler imports both services — serviceA first
+    const handler = project.createSourceFile(
+      "/src/handler.ts",
+      `import { getUsersA } from "./serviceA";
+import { getUsersB } from "./serviceB";
+export function handle() { return { a: getUsersA(), b: getUsersB() }; }`,
+    );
+
+    const result = traceImports(handler, entityByName);
+
+    // Entity:User is reachable via both paths at depth 2, but DFS visits serviceA first
+    // because its import declaration appears first in handler.ts
+    expect(result.entities.get("entity:User")).toEqual({
+      tracePath: ["/src/handler.ts", "/src/serviceA.ts", "/src/repo.ts"],
+      depth: 2,
+    });
+  });
+
+  it("first-discovered depth wins over shorter path when DFS visits longer path first", () => {
+    const project = new Project({ useInMemoryFileSystem: true });
+
+    // Repo with prisma access
+    project.createSourceFile(
+      "/src/repo.ts",
+      `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export function findUsers() { return prisma.user.findMany(); }`,
+    );
+
+    // serviceA reaches entity at depth 2 (via repo)
+    project.createSourceFile(
+      "/src/serviceA.ts",
+      `import { findUsers } from "./repo";
+export function getUsersA() { return findUsers(); }`,
+    );
+
+    // serviceB reaches entity at depth 1 (direct prisma access)
+    project.createSourceFile(
+      "/src/serviceB.ts",
+      `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export function getUsersB() { return prisma.user.findMany(); }`,
+    );
+
+    // Handler imports serviceA FIRST (longer path), then serviceB (shorter path)
+    const handler = project.createSourceFile(
+      "/src/handler.ts",
+      `import { getUsersA } from "./serviceA";
+import { getUsersB } from "./serviceB";
+export function handle() { return { a: getUsersA(), b: getUsersB() }; }`,
+    );
+
+    const result = traceImports(handler, entityByName);
+
+    // DFS visits serviceA first (depth 2 path), so that's what gets recorded
+    // even though serviceB reaches the same entity at depth 1
+    // This documents the first-discovered-wins behavior
+    expect(result.entities.get("entity:User")).toEqual({
+      tracePath: ["/src/handler.ts", "/src/serviceA.ts", "/src/repo.ts"],
+      depth: 2,
     });
   });
 

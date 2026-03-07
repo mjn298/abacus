@@ -1,10 +1,8 @@
 import { existsSync } from "node:fs";
 import { resolve, join, basename, extname } from "node:path";
 import { Project, type SourceFile } from "ts-morph";
-import { traceImports } from "./tracer.js";
+import { traceImports, DEFAULT_MAX_DEPTH } from "./tracer.js";
 import type { ScanNodeRef, ScanEdge, ScanWarning } from "./types.js";
-
-const DEFAULT_MAX_DEPTH = 8;
 
 export interface ProcessRoutesResult {
   edges: ScanEdge[];
