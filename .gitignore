@@ -10,6 +10,9 @@ bin/
 .dolt/
 *.db
 
+# Beads medatada
+.beads/metadata.json
+
 # Node.js scanner packages
 node_modules/
 dist/
