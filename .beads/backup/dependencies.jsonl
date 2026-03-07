@@ -1,3 +1,6 @@
+{"created_at":"2026-03-07T13:20:43Z","created_by":"mjn","depends_on_id":"aba-c7z","issue_id":"aba-c7z.1","type":"parent-child"}
+{"created_at":"2026-03-07T13:20:49Z","created_by":"mjn","depends_on_id":"aba-c7z","issue_id":"aba-c7z.2","type":"parent-child"}
+{"created_at":"2026-03-07T13:20:51Z","created_by":"mjn","depends_on_id":"aba-c7z","issue_id":"aba-c7z.3","type":"parent-child"}
 {"created_at":"2026-03-06T23:32:08Z","created_by":"mjn","depends_on_id":"aba-iu1","issue_id":"aba-iu1.1","type":"parent-child"}
 {"created_at":"2026-03-07T00:01:26Z","created_by":"mjn","depends_on_id":"aba-iu1.1","issue_id":"aba-iu1.1.1","type":"parent-child"}
 {"created_at":"2026-03-06T23:32:28Z","created_by":"mjn","depends_on_id":"aba-iu1","issue_id":"aba-iu1.2","type":"parent-child"}
