@@ -1,3 +1,17 @@
+{"created_at":"2026-03-06T23:32:08Z","created_by":"mjn","depends_on_id":"aba-iu1","issue_id":"aba-iu1.1","type":"parent-child"}
+{"created_at":"2026-03-06T23:32:28Z","created_by":"mjn","depends_on_id":"aba-iu1","issue_id":"aba-iu1.2","type":"parent-child"}
+{"created_at":"2026-03-06T23:33:57Z","created_by":"mjn","depends_on_id":"aba-iu1.1","issue_id":"aba-iu1.2","type":"blocks"}
+{"created_at":"2026-03-06T23:33:57Z","created_by":"mjn","depends_on_id":"aba-iu1.3","issue_id":"aba-iu1.2","type":"relates-to"}
+{"created_at":"2026-03-06T23:32:40Z","created_by":"mjn","depends_on_id":"aba-iu1","issue_id":"aba-iu1.3","type":"parent-child"}
+{"created_at":"2026-03-06T23:33:57Z","created_by":"mjn","depends_on_id":"aba-iu1.2","issue_id":"aba-iu1.3","type":"relates-to"}
+{"created_at":"2026-03-06T23:33:01Z","created_by":"mjn","depends_on_id":"aba-iu1","issue_id":"aba-iu1.4","type":"parent-child"}
+{"created_at":"2026-03-06T23:33:57Z","created_by":"mjn","depends_on_id":"aba-iu1.1","issue_id":"aba-iu1.4","type":"blocks"}
+{"created_at":"2026-03-06T23:33:57Z","created_by":"mjn","depends_on_id":"aba-iu1.5","issue_id":"aba-iu1.4","type":"relates-to"}
+{"created_at":"2026-03-06T23:33:30Z","created_by":"mjn","depends_on_id":"aba-iu1","issue_id":"aba-iu1.5","type":"parent-child"}
+{"created_at":"2026-03-06T23:33:57Z","created_by":"mjn","depends_on_id":"aba-iu1.4","issue_id":"aba-iu1.5","type":"blocks"}
+{"created_at":"2026-03-06T23:33:48Z","created_by":"mjn","depends_on_id":"aba-iu1","issue_id":"aba-iu1.6","type":"parent-child"}
+{"created_at":"2026-03-06T23:33:57Z","created_by":"mjn","depends_on_id":"aba-iu1.2","issue_id":"aba-iu1.6","type":"blocks"}
+{"created_at":"2026-03-06T23:33:57Z","created_by":"mjn","depends_on_id":"aba-iu1.5","issue_id":"aba-iu1.6","type":"blocks"}
 {"created_at":"2026-03-06T15:50:18Z","created_by":"mjn","depends_on_id":"aba-zca","issue_id":"aba-zca.1","type":"parent-child"}
 {"created_at":"2026-03-06T15:55:11Z","created_by":"mjn","depends_on_id":"aba-zca","issue_id":"aba-zca.10","type":"parent-child"}
 {"created_at":"2026-03-06T15:55:40Z","created_by":"mjn","depends_on_id":"aba-zca.2","issue_id":"aba-zca.10","type":"blocks"}
