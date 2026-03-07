@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parsePrismaSchema, buildScanOutput } from "./parser.js";
 import type { ScanInput, ScanOutput } from "./types.js";
@@ -20,8 +20,51 @@ async function main(): Promise<void> {
     const inputJson = await readStdin();
     const input: ScanInput = JSON.parse(inputJson);
 
-    const schemaPath = input.options?.schemaPath ?? "prisma/schema.prisma";
-    const fullPath = join(input.projectRoot, schemaPath);
+    const ignorePaths = input.ignorePaths ?? [];
+    let schemaPath = input.options?.schemaPath ?? "prisma/schema.prisma";
+    let fullPath = join(input.projectRoot, schemaPath);
+
+    // If the default path doesn't exist, try common alternatives
+    if (!existsSync(fullPath)) {
+      const fallbacks = [
+        "backend/prisma/schema.prisma",
+        "server/prisma/schema.prisma",
+        "api/prisma/schema.prisma",
+        "schema.prisma",
+      ];
+      for (const alt of fallbacks) {
+        const altPath = join(input.projectRoot, alt);
+        if (existsSync(altPath)) {
+          schemaPath = alt;
+          fullPath = altPath;
+          break;
+        }
+      }
+    }
+
+    // Skip if schema path matches any ignorePath
+    if (ignorePaths.some(ip => schemaPath === ip || schemaPath.startsWith(ip + "/"))) {
+      const skippedOutput: ScanOutput = {
+        version: 1,
+        scanner: {
+          id: "prisma",
+          name: "Prisma Entity Scanner",
+          version: "0.1.0",
+        },
+        nodes: [],
+        edges: [],
+        warnings: [],
+        stats: {
+          filesScanned: 0,
+          nodesFound: 0,
+          edgesFound: 0,
+          errors: 0,
+          durationMs: Date.now() - startTime,
+        },
+      };
+      process.stdout.write(JSON.stringify(skippedOutput, null, 2));
+      return;
+    }
 
     let schema: string;
     try {
@@ -52,7 +95,6 @@ async function main(): Promise<void> {
         },
       };
       process.stdout.write(JSON.stringify(errorOutput, null, 2));
-      process.exit(0);
       return;
     }
 
@@ -61,7 +103,6 @@ async function main(): Promise<void> {
     const output = buildScanOutput(parseResult, schemaPath, 1, durationMs);
 
     process.stdout.write(JSON.stringify(output, null, 2));
-    process.exit(0);
   } catch (err) {
     const errorOutput: ScanOutput = {
       version: 1,

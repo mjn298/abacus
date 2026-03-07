@@ -1,0 +1,7 @@
+{
+  "name": "abacus",
+  "description": "Living application graph tools — scan codebases, query routes/entities/pages, explore graph relationships, check Gherkin coverage, and scaffold new scanners",
+  "author": {
+    "name": "mjn"
+  }
+}

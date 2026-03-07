@@ -105,3 +105,83 @@ func TestLoadRejectsNonexistentFile(t *testing.T) {
 		t.Fatal("expected error for nonexistent file, got nil")
 	}
 }
+
+func TestScannerConfig_PhaseLink(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `version: 1
+project:
+  name: my-app
+  root: .
+scanners:
+  linker:
+    command: abacus-scanner-linker
+    phase: link
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sc := cfg.Scanners["linker"]
+	if sc.Phase != "link" {
+		t.Errorf("expected phase 'link', got %q", sc.Phase)
+	}
+}
+
+func TestScannerConfig_PhaseScan(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `version: 1
+project:
+  name: my-app
+  root: .
+scanners:
+  scanner:
+    command: abacus-scanner-foo
+    phase: scan
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sc := cfg.Scanners["scanner"]
+	if sc.Phase != "scan" {
+		t.Errorf("expected phase 'scan', got %q", sc.Phase)
+	}
+}
+
+func TestScannerConfig_PhaseDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `version: 1
+project:
+  name: my-app
+  root: .
+scanners:
+  basic:
+    command: abacus-scanner-basic
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sc := cfg.Scanners["basic"]
+	if sc.Phase != "" {
+		t.Errorf("expected phase '' (empty default), got %q", sc.Phase)
+	}
+}

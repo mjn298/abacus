@@ -73,6 +73,52 @@ func seedTestNodes(t *testing.T, repo *graph.GraphRepository) {
 	}
 }
 
+func TestTokenize_Basic(t *testing.T) {
+	tokens := Tokenize("Given I register a new user")
+	// "Given", "I", "a" are stripped (keywords/stopwords)
+	expected := []string{"register", "new", "user"}
+	if len(tokens) != len(expected) {
+		t.Fatalf("expected %d tokens, got %d: %v", len(expected), len(tokens), tokens)
+	}
+	for i, tok := range tokens {
+		if tok != expected[i] {
+			t.Errorf("token[%d] = %q, want %q", i, tok, expected[i])
+		}
+	}
+}
+
+func TestTokenize_StripsFTS5SpecialChars(t *testing.T) {
+	// FTS5 special chars: / * + - ^ ~ should be stripped
+	tokens := Tokenize(`I navigate to "/dashboard"`)
+	// "I", "to" are stopwords; "/dashboard" → "dashboard"; quotes stripped
+	for _, tok := range tokens {
+		for _, c := range tok {
+			if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+				t.Errorf("token %q contains non-alphanumeric char %q", tok, string(c))
+			}
+		}
+	}
+	// Should contain "navigate" and "dashboard"
+	found := map[string]bool{}
+	for _, tok := range tokens {
+		found[tok] = true
+	}
+	if !found["navigate"] {
+		t.Error("expected 'navigate' token")
+	}
+	if !found["dashboard"] {
+		t.Error("expected 'dashboard' token")
+	}
+}
+
+func TestTokenize_EmptyAfterStripping(t *testing.T) {
+	// Pure punctuation/special chars should produce no tokens
+	tokens := Tokenize(`"/" "*" "+" "-"`)
+	if len(tokens) != 0 {
+		t.Errorf("expected 0 tokens from pure special chars, got %d: %v", len(tokens), tokens)
+	}
+}
+
 func TestFuzzyMatcher_Match_FindsSimilar(t *testing.T) {
 	repo := setupTestDB(t)
 	seedTestNodes(t, repo)

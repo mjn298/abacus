@@ -209,7 +209,7 @@ func (s *AbacusServer) scanHandler(ctx context.Context, req *gomcp.CallToolReque
 		configs = append(configs, sc)
 	}
 
-	merged, err := s.runner.RunAll(ctx, s.cfg.Project.Root, configs)
+	merged, err := s.runner.RunAll(ctx, s.cfg.Project.Root, configs, s.cfg.Project.IgnorePaths)
 	if err != nil {
 		return nil, nil, fmt.Errorf("run scanners: %w", err)
 	}

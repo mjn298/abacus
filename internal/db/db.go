@@ -63,7 +63,27 @@ func InitSchema(db *sql.DB) error {
 			return fmt.Errorf("reading schema version: %w", err)
 		}
 		if version != schemaVersion {
-			return fmt.Errorf("schema version mismatch: got %d, expected %d", version, schemaVersion)
+			// Schema version mismatch — drop all tables/triggers and recreate
+			dropStatements := []string{
+				"DROP TRIGGER IF EXISTS nodes_ai",
+				"DROP TRIGGER IF EXISTS nodes_ad",
+				"DROP TRIGGER IF EXISTS nodes_au",
+				"DROP TABLE IF EXISTS nodes_fts",
+				"DROP TABLE IF EXISTS edges",
+				"DROP TABLE IF EXISTS nodes",
+				"DROP TABLE IF EXISTS schema_version",
+			}
+			for _, stmt := range dropStatements {
+				if _, err := tx.Exec(stmt); err != nil {
+					return fmt.Errorf("dropping old schema: %w", err)
+				}
+			}
+			if _, err := tx.Exec(schemaSQL); err != nil {
+				return fmt.Errorf("recreating schema: %w", err)
+			}
+			if _, err := tx.Exec("INSERT INTO schema_version (version) VALUES (?)", schemaVersion); err != nil {
+				return fmt.Errorf("setting new schema version: %w", err)
+			}
 		}
 	}
 

@@ -101,7 +101,7 @@ func TestRunAll_MergesResults(t *testing.T) {
 		{Command: scannerPath, Options: map[string]interface{}{}},
 	}
 
-	merged, err := r.RunAll(context.Background(), "/tmp/test-project", configs)
+	merged, err := r.RunAll(context.Background(), "/tmp/test-project", configs, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestRunAll_CapturesErrorsContinues(t *testing.T) {
 		{Command: scannerPath, Options: map[string]interface{}{}},
 	}
 
-	merged, err := r.RunAll(context.Background(), "/tmp/test-project", configs)
+	merged, err := r.RunAll(context.Background(), "/tmp/test-project", configs, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

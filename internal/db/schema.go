@@ -1,6 +1,6 @@
 package db
 
-const schemaVersion = 1
+const schemaVersion = 3
 
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS edges (
     dst_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     kind TEXT NOT NULL CHECK(kind IN ('uses_route','touches_entity','on_page','requires_permission','relates_to','field_relation')),
     properties TEXT NOT NULL DEFAULT '{}',
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    UNIQUE(src_id, dst_id, kind)
+    source_scanner TEXT,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
@@ -36,6 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_nodes_source ON nodes(source);
 CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src_id);
 CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst_id);
 CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
+CREATE INDEX IF NOT EXISTS idx_edges_source_scanner ON edges(source_scanner);
 
 -- FTS5 virtual table for full-text search
 CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(

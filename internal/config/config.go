@@ -14,13 +14,15 @@ type Config struct {
 }
 
 type ProjectConfig struct {
-	Name string `yaml:"name"`
-	Root string `yaml:"root"`
+	Name        string   `yaml:"name"`
+	Root        string   `yaml:"root"`
+	IgnorePaths []string `yaml:"ignorePaths,omitempty"`
 }
 
 type ScannerConfig struct {
 	Command string                 `yaml:"command"`
 	Options map[string]interface{} `yaml:"options"`
+	Phase   string                 `yaml:"phase,omitempty"`
 }
 
 func Load(path string) (*Config, error) {

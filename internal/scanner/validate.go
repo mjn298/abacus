@@ -24,7 +24,7 @@ var validEdgeKinds = map[string]bool{
 // ValidateOutput checks a ScanOutput for protocol compliance and returns
 // a list of human-readable validation error strings. An empty slice means
 // the output is valid.
-func ValidateOutput(output *ScanOutput) []string {
+func ValidateOutput(output *ScanOutput, knownNodeIDs map[string]bool) []string {
 	var errs []string
 
 	if output.Version != 1 {
@@ -67,11 +67,13 @@ func ValidateOutput(output *ScanOutput) []string {
 			errs = append(errs, fmt.Sprintf("edge[%d]: invalid kind %q", i, edge.Kind))
 		}
 
-		if !nodeIDs[edge.SrcID] {
+		srcKnown := nodeIDs[edge.SrcID] || (knownNodeIDs != nil && knownNodeIDs[edge.SrcID])
+		if !srcKnown {
 			errs = append(errs, fmt.Sprintf("edge[%d]: srcId %q does not reference a known node", i, edge.SrcID))
 		}
 
-		if !nodeIDs[edge.DstID] {
+		dstKnown := nodeIDs[edge.DstID] || (knownNodeIDs != nil && knownNodeIDs[edge.DstID])
+		if !dstKnown {
 			errs = append(errs, fmt.Sprintf("edge[%d]: dstId %q does not reference a known node", i, edge.DstID))
 		}
 	}

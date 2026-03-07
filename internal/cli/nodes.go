@@ -21,7 +21,7 @@ func queryNodesCmd(kind db.NodeKind, use, short string) *cobra.Command {
 			limit, _ := cmd.Flags().GetInt("limit")
 
 			if limit <= 0 {
-				limit = 50
+				limit = 1000
 			}
 
 			database, err := db.OpenDB(dbPath)
@@ -116,7 +116,7 @@ func queryNodesCmd(kind db.NodeKind, use, short string) *cobra.Command {
 	}
 
 	cmd.Flags().StringP("match", "m", "", "FTS5 search query")
-	cmd.Flags().IntP("limit", "l", 50, "Maximum number of results")
+	cmd.Flags().IntP("limit", "l", 0, "Maximum number of results (0 = all)")
 
 	return cmd
 }

@@ -48,10 +48,11 @@ type GraphNode struct {
 
 // GraphEdge represents an edge in the application graph.
 type GraphEdge struct {
-	ID         string         `json:"id"`
-	SrcID      string         `json:"src_id"`
-	DstID      string         `json:"dst_id"`
-	Kind       EdgeKind       `json:"kind"`
-	Properties map[string]any `json:"properties"`
-	CreatedAt  int64          `json:"created_at"`
+	ID            string         `json:"id"`
+	SrcID         string         `json:"src_id"`
+	DstID         string         `json:"dst_id"`
+	Kind          EdgeKind       `json:"kind"`
+	Properties    map[string]any `json:"properties"`
+	SourceScanner *string        `json:"source_scanner,omitempty"`
+	CreatedAt     int64          `json:"created_at"`
 }

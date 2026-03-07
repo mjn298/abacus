@@ -1,10 +1,21 @@
 package scanner
 
+// ScanNodeRef is a lightweight node reference sent to link-phase scanners.
+// It intentionally excludes Properties to reduce payload size and avoid leaking scanner-extracted metadata.
+type ScanNodeRef struct {
+	ID         string `json:"id"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	SourceFile string `json:"sourceFile,omitempty"`
+}
+
 // ScanInput is the JSON payload sent to a scanner's stdin.
 type ScanInput struct {
-	Version     int            `json:"version"`
-	ProjectRoot string         `json:"projectRoot"`
-	Options     map[string]any `json:"options"`
+	Version       int            `json:"version"`
+	ProjectRoot   string         `json:"projectRoot"`
+	Options       map[string]any `json:"options"`
+	IgnorePaths   []string       `json:"ignorePaths,omitempty"`
+	ExistingNodes []ScanNodeRef  `json:"existingNodes,omitempty"`
 }
 
 // ScanOutput is the JSON payload a scanner writes to stdout.

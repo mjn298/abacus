@@ -5,6 +5,7 @@ import type { ScanOutput, ScanNode, ScanWarning } from './types.js';
 
 interface ParseOptions {
   contractGlobs: string[];
+  ignorePaths?: string[];
 }
 
 export async function parseOrpcContracts(
@@ -18,7 +19,9 @@ export async function parseOrpcContracts(
   let errors = 0;
 
   // Resolve globs to file paths
-  const filePaths = resolveGlobs(projectRoot, options.contractGlobs);
+  const globs = options?.contractGlobs ?? ['**/*.ts'];
+  const ignorePaths = options?.ignorePaths ?? [];
+  const filePaths = resolveGlobs(projectRoot, globs, ignorePaths);
 
   // Create ts-morph project (no type checking needed, just AST)
   const tsMorphProject = new Project({
@@ -64,12 +67,13 @@ export async function parseOrpcContracts(
   };
 }
 
-function resolveGlobs(projectRoot: string, globs: string[]): string[] {
+function resolveGlobs(projectRoot: string, globs: string[], ignorePaths: string[] = []): string[] {
   const files: string[] = [];
   for (const pattern of globs) {
     // Use Node.js built-in glob (available since Node 22)
     const matched = globSync(pattern, { cwd: projectRoot });
     for (const m of matched) {
+      if (ignorePaths.some(ip => m === ip || m.startsWith(ip + '/'))) continue;
       const fullPath = join(projectRoot, m);
       if (!files.includes(fullPath)) {
         files.push(fullPath);
@@ -79,8 +83,20 @@ function resolveGlobs(projectRoot: string, globs: string[]): string[] {
   return files.sort();
 }
 
+function deriveContractName(relPath: string): string {
+  let name = relPath;
+  // Strip common prefixes
+  name = name.replace(/^(src\/|backend\/|contracts\/|routes\/)+/, '');
+  // Strip file extensions
+  name = name.replace(/\.(ts|js)$/, '');
+  // Strip common suffixes
+  name = name.replace(/\.(contract|routes|router)$/, '');
+  return name;
+}
+
 function extractRouteNodes(sourceFile: SourceFile, relPath: string): ScanNode[] {
   const nodes: ScanNode[] = [];
+  const contractName = deriveContractName(relPath);
 
   // Find all .route() call expressions
   const callExprs = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
@@ -113,8 +129,8 @@ function extractRouteNodes(sourceFile: SourceFile, relPath: string): ScanNode[] 
     // Walk the chain to find .input() and .output() calls
     const { inputSchema, outputSchema } = findChainedSchemas(call);
 
-    const id = `route:${method}-${path}`;
-    const name = `${method} ${path}`;
+    const id = `route:${method}-${contractName}:${path}`;
+    const name = `[${contractName}] ${method} ${path}`;
     const label = summary || name;
 
     const properties: Record<string, unknown> = {

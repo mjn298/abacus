@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -44,34 +45,83 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	// Determine output mode early so we can gate progress output
+	jsonFlag, _ := cmd.Flags().GetBool("json")
+	showProgress := !quiet && !jsonFlag
+
 	// Build scanner configs, optionally filtering by type
 	var filterType string
 	if len(args) > 0 {
 		filterType = args[0]
 	}
 
-	configs := make([]config.ScannerConfig, 0, len(cfg.Scanners))
+	// Check that at least one scanner matches
+	matchCount := 0
+	for id := range cfg.Scanners {
+		if filterType == "" || id == filterType {
+			matchCount++
+		}
+	}
+
+	if filterType != "" && matchCount == 0 {
+		return fmt.Errorf("no scanner found with ID %q", filterType)
+	}
+
+	if matchCount == 0 {
+		return fmt.Errorf("no scanners configured; check %s", configPath)
+	}
+
+	// Run scanners individually with progress output
+	runner := scanner.NewRunner(60 * time.Second)
+	ctx := context.Background()
+	merged := &scanner.MergedScanOutput{}
+
 	for id, sc := range cfg.Scanners {
 		if filterType != "" && id != filterType {
 			continue
 		}
-		configs = append(configs, sc)
-	}
 
-	if filterType != "" && len(configs) == 0 {
-		return fmt.Errorf("no scanner found with ID %q", filterType)
-	}
+		if showProgress {
+			fmt.Fprintf(os.Stderr, "Scanning with %s...", id)
+		}
 
-	if len(configs) == 0 {
-		return fmt.Errorf("no scanners configured; check %s", configPath)
-	}
+		opts := sc.Options
+		if opts == nil {
+			opts = map[string]interface{}{}
+		}
+		input := scanner.ScanInput{
+			Version:     1,
+			ProjectRoot: cfg.Project.Root,
+			Options:     opts,
+			IgnorePaths: cfg.Project.IgnorePaths,
+		}
 
-	// Run scanners
-	runner := scanner.NewRunner(60 * time.Second)
-	ctx := context.Background()
-	merged, err := runner.RunAll(ctx, cfg.Project.Root, configs)
-	if err != nil {
-		return fmt.Errorf("running scanners: %w", err)
+		out, err := runner.RunScanner(ctx, sc.Command, input)
+		if err != nil {
+			if showProgress {
+				fmt.Fprintf(os.Stderr, " error\n")
+			}
+			merged.Errors = append(merged.Errors, scanner.ScannerError{
+				ScannerID: sc.Command,
+				Error:     err.Error(),
+			})
+			merged.Stats.TotalErrors++
+			continue
+		}
+
+		if showProgress {
+			fmt.Fprintf(os.Stderr, " done (%d nodes, %d edges, %dms)\n",
+				out.Stats.NodesFound, out.Stats.EdgesFound, out.Stats.DurationMs)
+		}
+
+		merged.Nodes = append(merged.Nodes, out.Nodes...)
+		merged.Edges = append(merged.Edges, out.Edges...)
+		merged.Warnings = append(merged.Warnings, out.Warnings...)
+		merged.Stats.TotalFilesScanned += out.Stats.FilesScanned
+		merged.Stats.TotalNodesFound += out.Stats.NodesFound
+		merged.Stats.TotalEdgesFound += out.Stats.EdgesFound
+		merged.Stats.TotalErrors += out.Stats.Errors
+		merged.Stats.ScannerCount++
 	}
 
 	// Open DB and ingest
@@ -101,12 +151,21 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if showProgress {
+		fmt.Fprintf(os.Stderr, "Ingesting %d nodes...", len(graphNodes))
+	}
 	nodesIngested, err := repo.BulkUpsertNodes(graphNodes)
 	if err != nil {
 		return fmt.Errorf("ingesting nodes: %w", err)
 	}
+	if showProgress {
+		fmt.Fprintf(os.Stderr, " done\n")
+	}
 
 	// Ingest edges
+	if showProgress {
+		fmt.Fprintf(os.Stderr, "Ingesting %d edges...", len(merged.Edges))
+	}
 	edgesCreated := 0
 	var warnings []string
 	for _, se := range merged.Edges {
@@ -123,6 +182,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 			edgesCreated++
 		}
 	}
+	if showProgress {
+		fmt.Fprintf(os.Stderr, " done (%d created, %d warnings)\n", edgesCreated, len(warnings))
+	}
 
 	// Collect warning messages from scanner output
 	for _, sw := range merged.Warnings {
@@ -137,7 +199,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Stats:         merged.Stats,
 	}
 
-	jsonFlag, _ := cmd.Flags().GetBool("json")
 	if jsonFlag {
 		return PrintJSON(w, result)
 	}

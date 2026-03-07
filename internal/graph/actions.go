@@ -21,14 +21,14 @@ func NewActionService(repo *GraphRepository) *ActionService {
 
 // CreateActionInput holds the data needed to create a new action node.
 type CreateActionInput struct {
-	Name            string
-	Label           string
-	GherkinPatterns []string
-	RouteRefs       []string
-	EntityRefs      []string
-	PageRefs        []string
-	PermissionRefs  []string
-	Properties      map[string]any
+	Name            string         `json:"name"`
+	Label           string         `json:"label"`
+	GherkinPatterns []string       `json:"gherkin_patterns"`
+	RouteRefs       []string       `json:"route_refs"`
+	EntityRefs      []string       `json:"entity_refs"`
+	PageRefs        []string       `json:"page_refs"`
+	PermissionRefs  []string       `json:"permission_refs"`
+	Properties      map[string]any `json:"properties"`
 }
 
 // UpdateActionInput holds optional fields for updating an action node.
@@ -44,17 +44,17 @@ type UpdateActionInput struct {
 
 // ActionResult holds the result of a create or update operation.
 type ActionResult struct {
-	Action   *db.GraphNode
-	Edges    []db.GraphEdge
-	Warnings []string
+	Action   *db.GraphNode  `json:"action"`
+	Edges    []db.GraphEdge `json:"edges"`
+	Warnings []string       `json:"warnings"`
 }
 
 // ActionNode holds an action node with its resolved references.
 type ActionNode struct {
-	Node     db.GraphNode
-	Routes   []db.GraphNode
-	Entities []db.GraphNode
-	Pages    []db.GraphNode
+	Node     db.GraphNode   `json:"node"`
+	Routes   []db.GraphNode `json:"routes"`
+	Entities []db.GraphNode `json:"entities"`
+	Pages    []db.GraphNode `json:"pages"`
 }
 
 // ListActionOpts holds pagination options for listing actions.
@@ -71,15 +71,15 @@ type SuggestContext struct {
 
 // ActionAudit holds the results of an action audit.
 type ActionAudit struct {
-	Total         int
-	StaleActions  []StaleAction
-	OrphanActions []string
+	Total         int           `json:"total"`
+	StaleActions  []StaleAction `json:"stale_actions"`
+	OrphanActions []string      `json:"orphan_actions"`
 }
 
 // StaleAction holds information about an action with missing references.
 type StaleAction struct {
-	ActionID    string
-	MissingRefs []string
+	ActionID    string   `json:"action_id"`
+	MissingRefs []string `json:"missing_refs"`
 }
 
 // slugRe matches non-alphanumeric characters for slug generation.
@@ -325,7 +325,7 @@ func (s *ActionService) Get(id string) (*ActionNode, error) {
 	return result, nil
 }
 
-// List returns action nodes with pagination. References are not resolved.
+// List returns action nodes with pagination, resolving edge references.
 func (s *ActionService) List(opts ListActionOpts) ([]ActionNode, error) {
 	if opts.Limit <= 0 {
 		opts.Limit = 50
@@ -338,6 +338,24 @@ func (s *ActionService) List(opts ListActionOpts) ([]ActionNode, error) {
 	result := make([]ActionNode, len(nodes))
 	for i, n := range nodes {
 		result[i] = ActionNode{Node: n}
+		edges, err := s.repo.GetEdgesFrom(n.ID, nil)
+		if err != nil {
+			continue // Non-fatal: show action without refs
+		}
+		for _, edge := range edges {
+			target, err := s.repo.GetNode(edge.DstID)
+			if err != nil || target == nil {
+				continue
+			}
+			switch edge.Kind {
+			case db.EdgeUsesRoute:
+				result[i].Routes = append(result[i].Routes, *target)
+			case db.EdgeTouchesEntity:
+				result[i].Entities = append(result[i].Entities, *target)
+			case db.EdgeOnPage:
+				result[i].Pages = append(result[i].Pages, *target)
+			}
+		}
 	}
 	return result, nil
 }

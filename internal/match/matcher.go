@@ -25,17 +25,17 @@ type MatchOptions struct {
 
 // MatchResult holds the outcome of matching a step text.
 type MatchResult struct {
-	Tier       string            // "exact", "fuzzy", "suggest"
-	Action     *graph.ActionNode // Tier 1: matched action with resolved refs
-	Parameters map[string]string // Tier 1: extracted parameters
-	Candidates []FuzzyCandidate  // Tier 2: fuzzy matches
-	Suggestion *Suggestion       // Tier 3: creation suggestion
+	Tier       string            `json:"tier"`                 // "exact", "fuzzy", "suggest"
+	Action     *graph.ActionNode `json:"action,omitempty"`     // Tier 1: matched action with resolved refs
+	Parameters map[string]string `json:"parameters,omitempty"` // Tier 1: extracted parameters
+	Candidates []FuzzyCandidate  `json:"candidates,omitempty"` // Tier 2: fuzzy matches
+	Suggestion *Suggestion       `json:"suggestion,omitempty"` // Tier 3: creation suggestion
 }
 
 // Step represents a single Gherkin step.
 type Step struct {
-	Keyword string // "Given", "When", "Then", etc.
-	Text    string // The step text without keyword
+	Keyword string `json:"keyword"` // "Given", "When", "Then", etc.
+	Text    string `json:"text"`    // The step text without keyword
 }
 
 // NewMatchService creates a new MatchService with the given dependencies.

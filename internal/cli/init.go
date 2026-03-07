@@ -22,8 +22,11 @@ var initCmd = &cobra.Command{
 	RunE:  runInit,
 }
 
+var initForce bool
+
 func init() {
 	initCmd.Flags().StringVar(&initDir, "dir", ".", "Project directory to initialize")
+	initCmd.Flags().BoolVar(&initForce, "force", false, "Re-detect scanners and overwrite config")
 	rootCmd.AddCommand(initCmd)
 }
 
@@ -45,8 +48,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 
 	// Check if already initialized
-	if _, err := os.Stat(configPath); err == nil {
-		Warn(w, "Abacus is already initialized in this directory")
+	if _, err := os.Stat(configPath); err == nil && !initForce {
+		Warn(w, "Abacus is already initialized in this directory (use --force to re-detect)")
 		return nil
 	}
 
@@ -64,6 +67,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 		Project: config.ProjectConfig{
 			Name: projectName,
 			Root: ".",
+			IgnorePaths: []string{
+				"node_modules",
+				"dist",
+				"build",
+				".git",
+			},
 		},
 		Scanners: scanners,
 	}
@@ -117,6 +126,55 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// resolveScannersPath finds the scanners directory.
+// Checks ABACUS_SCANNERS_PATH env var, then tries to find scanners/
+// relative to the running binary.
+func resolveScannersPath() string {
+	// 1. Env var override
+	if p := os.Getenv("ABACUS_SCANNERS_PATH"); p != "" {
+		return p
+	}
+
+	// 2. Relative to executable
+	if exe, err := os.Executable(); err == nil {
+		exe, _ = filepath.EvalSymlinks(exe)
+		// Binary might be in repo root or ~/go/bin
+		// Check: binary_dir/scanners/ and binary_dir/../scanners/
+		for _, candidate := range []string{
+			filepath.Join(filepath.Dir(exe), "scanners"),
+			filepath.Join(filepath.Dir(exe), "..", "scanners"),
+		} {
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				abs, _ := filepath.Abs(candidate)
+				return abs
+			}
+		}
+	}
+
+	return ""
+}
+
+// scannerCommand builds the command string for a scanner.
+func scannerCommand(scannersBase, scannerName string) string {
+	if scannersBase != "" {
+		return fmt.Sprintf("node %s", filepath.Join(scannersBase, scannerName, "dist", "index.js"))
+	}
+	return fmt.Sprintf("node scanners/%s/dist/index.js", scannerName)
+}
+
+// extractDeps collects all dependency names from package.json.
+func extractDeps(pkg map[string]interface{}) map[string]bool {
+	deps := make(map[string]bool)
+	for _, key := range []string{"dependencies", "devDependencies", "peerDependencies"} {
+		if d, ok := pkg[key].(map[string]interface{}); ok {
+			for name := range d {
+				deps[name] = true
+			}
+		}
+	}
+	return deps
+}
+
 // detectProject inspects the directory for common project files and returns
 // a project name, type string, and any auto-detected scanner configs.
 func detectProject(dir string) (name string, projectType string, scanners map[string]config.ScannerConfig) {
@@ -130,6 +188,9 @@ func detectProject(dir string) (name string, projectType string, scanners map[st
 		}
 	}
 	projectType = "unknown"
+
+	// Resolve scanners base path for generating commands
+	scannersBase := resolveScannersPath()
 
 	// Check for Go project
 	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
@@ -151,31 +212,108 @@ func detectProject(dir string) (name string, projectType string, scanners map[st
 		}
 	}
 
-	// Check for Node.js project
+	// Read package.json dependencies from root and immediate subdirectories
+	// (monorepo support: backend/, frontend/, etc.)
+	deps := make(map[string]bool)
 	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
 		projectType = "node"
-		// Try to extract name
 		if data, err := os.ReadFile(filepath.Join(dir, "package.json")); err == nil {
 			var pkg map[string]interface{}
 			if err := json.Unmarshal(data, &pkg); err == nil {
 				if n, ok := pkg["name"].(string); ok && n != "" {
 					name = n
 				}
+				for k, v := range extractDeps(pkg) {
+					deps[k] = v
+				}
+			}
+		}
+	}
+	// Scan immediate subdirectories for additional package.json files
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
+				continue
+			}
+			subPkg := filepath.Join(dir, entry.Name(), "package.json")
+			if data, err := os.ReadFile(subPkg); err == nil {
+				projectType = "node"
+				var pkg map[string]interface{}
+				if err := json.Unmarshal(data, &pkg); err == nil {
+					for k, v := range extractDeps(pkg) {
+						deps[k] = v
+					}
+				}
 			}
 		}
 	}
 
-	// Check for Prisma schema
+	// Detect Express
+	if deps["express"] {
+		scanners["express"] = config.ScannerConfig{
+			Command: scannerCommand(scannersBase, "express"),
+			Options: map[string]interface{}{
+				"routeGlobs": []string{"**/*.ts", "**/*.js"},
+			},
+		}
+	}
+
+	// Detect Prisma schema (check root and immediate subdirectories)
+	prismaFound := false
 	prismaLocations := []string{
 		filepath.Join(dir, "prisma", "schema.prisma"),
 		filepath.Join(dir, "schema.prisma"),
 	}
+	// Also check subdirs like backend/prisma/schema.prisma
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && entry.Name() != "node_modules" {
+				prismaLocations = append(prismaLocations,
+					filepath.Join(dir, entry.Name(), "prisma", "schema.prisma"),
+					filepath.Join(dir, entry.Name(), "schema.prisma"),
+				)
+			}
+		}
+	}
 	for _, loc := range prismaLocations {
 		if _, err := os.Stat(loc); err == nil {
-			scanners["prisma"] = config.ScannerConfig{
-				Command: "abacus-scanner-prisma",
+			opts := map[string]interface{}{}
+			// Store schema path if it's not the default location
+			relPath, relErr := filepath.Rel(dir, loc)
+			if relErr == nil && relPath != filepath.Join("prisma", "schema.prisma") {
+				opts["schemaPath"] = relPath
 			}
+			scanners["prisma"] = config.ScannerConfig{
+				Command: scannerCommand(scannersBase, "prisma"),
+				Options: opts,
+			}
+			prismaFound = true
+			_ = prismaFound
 			break
+		}
+	}
+
+	// Detect React Router
+	if deps["react-router"] || deps["react-router-dom"] {
+		scanners["react-router"] = config.ScannerConfig{
+			Command: scannerCommand(scannersBase, "react-router"),
+		}
+	}
+
+	// Detect oRPC (any @orpc/ package indicates oRPC usage)
+	orpcDetected := false
+	for dep := range deps {
+		if strings.HasPrefix(dep, "@orpc/") {
+			orpcDetected = true
+			break
+		}
+	}
+	if orpcDetected {
+		scanners["orpc"] = config.ScannerConfig{
+			Command: scannerCommand(scannersBase, "orpc"),
+			Options: map[string]interface{}{
+				"contractGlobs": []string{"**/*.ts"},
+			},
 		}
 	}
 

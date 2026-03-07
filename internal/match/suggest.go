@@ -11,16 +11,16 @@ import (
 // Suggestion holds a generated CreateActionInput and the graph context
 // that informed it.
 type Suggestion struct {
-	Input   graph.CreateActionInput
-	Context RelatedContext
+	Input   graph.CreateActionInput `json:"input"`
+	Context RelatedContext          `json:"context"`
 }
 
 // RelatedContext holds graph nodes related to a step text, discovered
 // via keyword search.
 type RelatedContext struct {
-	Routes   []db.GraphNode
-	Entities []db.GraphNode
-	Pages    []db.GraphNode
+	Routes   []db.GraphNode `json:"routes"`
+	Entities []db.GraphNode `json:"entities"`
+	Pages    []db.GraphNode `json:"pages"`
 }
 
 // SuggestionBuilder generates action creation suggestions from step text

@@ -8,6 +8,22 @@ import { join, relative } from 'path';
 import { globSync } from 'fs';
 import type { ScanOutput, ScanNode, ScanWarning } from './types.js';
 
+/**
+ * Derive a router name from a relative file path by stripping common prefixes
+ * and file extensions. E.g. "backend/routes/users.routes.ts" → "users"
+ */
+function deriveRouterName(relPath: string): string {
+  let name = relPath;
+  // Strip common leading directories
+  name = name.replace(/^(src\/|backend\/|server\/|app\/)?(routes\/|routers\/|api\/)?/, '');
+  // Strip file extensions (.routes.ts, .router.ts, .ts, .js, etc.)
+  name = name.replace(/\.(routes|router)\.(ts|js|mjs|cjs)$/, '');
+  name = name.replace(/\.(ts|js|mjs|cjs)$/, '');
+  // Strip trailing /index
+  name = name.replace(/\/index$/, '');
+  return name || relPath;
+}
+
 const HTTP_METHODS = new Set([
   'get',
   'post',
@@ -21,6 +37,7 @@ const HTTP_METHODS = new Set([
 
 interface ParseOptions {
   routeGlobs: string[];
+  ignorePaths?: string[];
 }
 
 export async function parseExpressRoutes(
@@ -33,7 +50,10 @@ export async function parseExpressRoutes(
   let filesScanned = 0;
   let errors = 0;
 
-  const filePaths = resolveGlobs(projectRoot, options.routeGlobs);
+  const globs = options?.routeGlobs ?? ['**/*.ts', '**/*.js'];
+  const ignorePaths = options?.ignorePaths ?? [];
+  const filePaths = resolveGlobs(projectRoot, globs, ignorePaths)
+    .filter(f => !/(\.spec\.|\.test\.|__tests__|\/tests?\/)/.test(f));
 
   const tsMorphProject = new Project({
     compilerOptions: { allowJs: true, noEmit: true },
@@ -78,11 +98,12 @@ export async function parseExpressRoutes(
   };
 }
 
-function resolveGlobs(projectRoot: string, globs: string[]): string[] {
+function resolveGlobs(projectRoot: string, globs: string[], ignorePaths: string[] = []): string[] {
   const files: string[] = [];
   for (const pattern of globs) {
     const matched = globSync(pattern, { cwd: projectRoot });
     for (const m of matched) {
+      if (ignorePaths.some(ip => m === ip || m.startsWith(ip + '/'))) continue;
       const fullPath = join(projectRoot, m);
       if (!files.includes(fullPath)) {
         files.push(fullPath);
@@ -97,12 +118,23 @@ function extractRouteNodes(
   relPath: string
 ): ScanNode[] {
   const nodes: ScanNode[] = [];
+  const seenIds = new Set<string>();
   const callExprs = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
 
   for (const call of callExprs) {
     // Try direct route pattern: router.get('/path', ...handlers)
     const directRoutes = tryDirectRoute(call, relPath);
     if (directRoutes) {
+      for (const node of directRoutes) {
+        let id = node.id;
+        let counter = 1;
+        while (seenIds.has(id)) {
+          counter++;
+          id = `${node.id}#${counter}`;
+        }
+        node.id = id;
+        seenIds.add(id);
+      }
       nodes.push(...directRoutes);
       continue;
     }
@@ -110,6 +142,16 @@ function extractRouteNodes(
     // Try chained route pattern: router.route('/path').get(...).post(...)
     const chainedRoutes = tryChainedRoute(call, relPath);
     if (chainedRoutes) {
+      for (const node of chainedRoutes) {
+        let id = node.id;
+        let counter = 1;
+        while (seenIds.has(id)) {
+          counter++;
+          id = `${node.id}#${counter}`;
+        }
+        node.id = id;
+        seenIds.add(id);
+      }
       nodes.push(...chainedRoutes);
     }
   }
@@ -155,7 +197,8 @@ function tryDirectRoute(
   const handlerArgs = args.slice(1);
   const { middleware, handler } = extractMiddlewareAndHandler(handlerArgs);
 
-  const id = `route:${method}-${path}`;
+  const routerName = deriveRouterName(relPath);
+  const id = `route:${method}-${routerName}:${path}`;
   const name = `${method} ${path}`;
 
   return [
@@ -248,7 +291,8 @@ function collectChainedMethods(
       const handlerArgs = parentCall.getArguments();
       const { middleware, handler } = extractMiddlewareAndHandler(handlerArgs);
 
-      const id = `route:${method}-${path}`;
+      const routerName = deriveRouterName(relPath);
+      const id = `route:${method}-${routerName}:${path}`;
       const name = `${method} ${path}`;
 
       nodes.push({

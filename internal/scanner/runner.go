@@ -67,7 +67,7 @@ func (r *Runner) RunScanner(ctx context.Context, command string, input ScanInput
 		return nil, fmt.Errorf("parsing scanner output: %w (raw: %s)", err, raw)
 	}
 
-	if validationErrs := ValidateOutput(&output); len(validationErrs) > 0 {
+	if validationErrs := ValidateOutput(&output, nil); len(validationErrs) > 0 {
 		return nil, fmt.Errorf("scanner output validation failed: %s", strings.Join(validationErrs, "; "))
 	}
 
@@ -77,7 +77,7 @@ func (r *Runner) RunScanner(ctx context.Context, command string, input ScanInput
 // RunAll executes all configured scanners, merges their results, and returns
 // a MergedScanOutput. If a scanner fails, the error is captured in
 // MergedScanOutput.Errors and remaining scanners continue.
-func (r *Runner) RunAll(ctx context.Context, projectRoot string, configs []config.ScannerConfig) (*MergedScanOutput, error) {
+func (r *Runner) RunAll(ctx context.Context, projectRoot string, configs []config.ScannerConfig, ignorePaths []string) (*MergedScanOutput, error) {
 	merged := &MergedScanOutput{}
 
 	for _, cfg := range configs {
@@ -85,6 +85,7 @@ func (r *Runner) RunAll(ctx context.Context, projectRoot string, configs []confi
 			Version:     1,
 			ProjectRoot: projectRoot,
 			Options:     toAnyMap(cfg.Options),
+			IgnorePaths: ignorePaths,
 		}
 
 		out, err := r.RunScanner(ctx, cfg.Command, input)

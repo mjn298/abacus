@@ -390,10 +390,16 @@ func TestInsertEdge_DuplicateReturnsError(t *testing.T) {
 		t.Fatalf("first InsertEdge: %v", err)
 	}
 
+	// Same (src, dst, kind) but different ID is now allowed (multiple edges of same kind between same nodes)
 	edge2 := &db.GraphEdge{ID: "e2", SrcID: "n1", DstID: "n2", Kind: db.EdgeUsesRoute}
-	err := repo.InsertEdge(edge2)
-	if err == nil {
-		t.Fatal("expected error for duplicate edge, got nil")
+	if err := repo.InsertEdge(edge2); err != nil {
+		t.Fatalf("InsertEdge with different ID but same (src,dst,kind) should succeed: %v", err)
+	}
+
+	// Same ID (primary key) should upsert (replace) without error
+	edge3 := &db.GraphEdge{ID: "e1", SrcID: "n1", DstID: "n2", Kind: db.EdgeUsesRoute}
+	if err := repo.InsertEdge(edge3); err != nil {
+		t.Fatalf("InsertEdge with same ID should upsert: %v", err)
 	}
 }
 
@@ -498,6 +504,74 @@ func TestGetEdgesTo_WithKindFilter(t *testing.T) {
 	}
 	if edges[0].Kind != db.EdgeTouchesEntity {
 		t.Errorf("Kind = %q, want %q", edges[0].Kind, db.EdgeTouchesEntity)
+	}
+}
+
+func TestInsertEdge_WithSourceScanner(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	n1 := makeNode("n1", db.NodeRoute)
+	n2 := makeNode("n2", db.NodeEntity)
+	repo.InsertNode(n1)
+	repo.InsertNode(n2)
+
+	scanner := "prisma"
+	edge := &db.GraphEdge{
+		ID:            "e1",
+		SrcID:         "n1",
+		DstID:         "n2",
+		Kind:          db.EdgeTouchesEntity,
+		Properties:    map[string]any{"field": "user_id"},
+		SourceScanner: &scanner,
+	}
+	if err := repo.InsertEdge(edge); err != nil {
+		t.Fatalf("InsertEdge: %v", err)
+	}
+
+	edges, err := repo.GetEdgesFrom("n1", nil)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].SourceScanner == nil {
+		t.Fatal("expected SourceScanner to be non-nil")
+	}
+	if *edges[0].SourceScanner != "prisma" {
+		t.Errorf("SourceScanner = %q, want %q", *edges[0].SourceScanner, "prisma")
+	}
+}
+
+func TestInsertEdge_WithoutSourceScanner(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	n1 := makeNode("n1", db.NodeRoute)
+	n2 := makeNode("n2", db.NodeEntity)
+	repo.InsertNode(n1)
+	repo.InsertNode(n2)
+
+	edge := &db.GraphEdge{
+		ID:    "e1",
+		SrcID: "n1",
+		DstID: "n2",
+		Kind:  db.EdgeUsesRoute,
+	}
+	if err := repo.InsertEdge(edge); err != nil {
+		t.Fatalf("InsertEdge: %v", err)
+	}
+
+	edges, err := repo.GetEdgesFrom("n1", nil)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].SourceScanner != nil {
+		t.Errorf("expected SourceScanner to be nil, got %q", *edges[0].SourceScanner)
 	}
 }
 

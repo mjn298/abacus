@@ -2,7 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"io/fs"
 	"path/filepath"
+	"strings"
 
 	"github.com/mjn/abacus/internal/db"
 	"github.com/mjn/abacus/internal/graph"
@@ -46,8 +48,8 @@ func coverageRunE(cmd *cobra.Command, args []string) error {
 		globPattern = args[0]
 	}
 
-	// Find feature files
-	files, err := filepath.Glob(globPattern)
+	// Find feature files (supports ** recursive globbing via WalkDir)
+	files, err := globFeatureFiles(globPattern)
 	if err != nil {
 		return fmt.Errorf("glob pattern: %w", err)
 	}
@@ -134,4 +136,40 @@ func coverageRunE(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(w, "Coverage: %.1f%%\n", result.CoveragePct)
 
 	return nil
+}
+
+// globFeatureFiles finds files matching a glob pattern, supporting ** for
+// recursive directory traversal (which filepath.Glob doesn't handle).
+func globFeatureFiles(pattern string) ([]string, error) {
+	if !strings.Contains(pattern, "**") {
+		return filepath.Glob(pattern)
+	}
+
+	// Split pattern on ** to get prefix dir and suffix pattern
+	parts := strings.SplitN(pattern, "**", 2)
+	root := filepath.Clean(parts[0])
+	if root == "" || root == "." {
+		root = "."
+	}
+	suffix := strings.TrimPrefix(parts[1], "/")
+	if suffix == "" {
+		suffix = "*"
+	}
+
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip inaccessible dirs
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name := filepath.Base(path)
+		matched, _ := filepath.Match(suffix, name)
+		if matched {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
 }

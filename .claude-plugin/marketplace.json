@@ -1,0 +1,30 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "abacus",
+  "description": "Living application graph tools for scanning codebases, querying routes/entities/pages, exploring graph relationships, checking Gherkin coverage, and scaffolding new scanners",
+  "owner": {
+    "name": "mjn"
+  },
+  "plugins": [
+    {
+      "name": "abacus",
+      "description": "Scan codebases, query routes/entities/pages, explore graph relationships, check Gherkin coverage, and scaffold new scanners",
+      "version": "0.1.0",
+      "author": {
+        "name": "mjn"
+      },
+      "source": "./",
+      "category": "development",
+      "keywords": [
+        "abacus",
+        "application-graph",
+        "scanner",
+        "gherkin",
+        "bdd",
+        "routes",
+        "entities",
+        "mcp"
+      ]
+    }
+  ]
+}

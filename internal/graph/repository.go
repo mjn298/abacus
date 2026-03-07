@@ -26,8 +26,8 @@ type SearchResult struct {
 
 // SubGraph holds a set of connected nodes and the edges between them.
 type SubGraph struct {
-	Nodes []db.GraphNode
-	Edges []db.GraphEdge
+	Nodes []db.GraphNode `json:"nodes"`
+	Edges []db.GraphEdge `json:"edges"`
 }
 
 // InsertNode inserts a new node into the graph. Returns an error if a node
@@ -127,9 +127,9 @@ func (r *GraphRepository) InsertEdge(edge *db.GraphEdge) error {
 	}
 
 	_, err = r.database.Exec(
-		`INSERT INTO edges (id, src_id, dst_id, kind, properties)
-		 VALUES (?, ?, ?, ?, ?)`,
-		edge.ID, edge.SrcID, edge.DstID, string(edge.Kind), props,
+		`INSERT OR REPLACE INTO edges (id, src_id, dst_id, kind, properties, source_scanner)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		edge.ID, edge.SrcID, edge.DstID, string(edge.Kind), props, edge.SourceScanner,
 	)
 	if err != nil {
 		return fmt.Errorf("insert edge %q: %w", edge.ID, err)
@@ -144,13 +144,13 @@ func (r *GraphRepository) GetEdgesFrom(nodeID string, kind *db.EdgeKind) ([]db.G
 	var err error
 	if kind != nil {
 		rows, err = r.database.Query(
-			`SELECT id, src_id, dst_id, kind, properties, created_at
+			`SELECT id, src_id, dst_id, kind, properties, source_scanner, created_at
 			 FROM edges WHERE src_id = ? AND kind = ?`,
 			nodeID, string(*kind),
 		)
 	} else {
 		rows, err = r.database.Query(
-			`SELECT id, src_id, dst_id, kind, properties, created_at
+			`SELECT id, src_id, dst_id, kind, properties, source_scanner, created_at
 			 FROM edges WHERE src_id = ?`,
 			nodeID,
 		)
@@ -170,13 +170,13 @@ func (r *GraphRepository) GetEdgesTo(nodeID string, kind *db.EdgeKind) ([]db.Gra
 	var err error
 	if kind != nil {
 		rows, err = r.database.Query(
-			`SELECT id, src_id, dst_id, kind, properties, created_at
+			`SELECT id, src_id, dst_id, kind, properties, source_scanner, created_at
 			 FROM edges WHERE dst_id = ? AND kind = ?`,
 			nodeID, string(*kind),
 		)
 	} else {
 		rows, err = r.database.Query(
-			`SELECT id, src_id, dst_id, kind, properties, created_at
+			`SELECT id, src_id, dst_id, kind, properties, source_scanner, created_at
 			 FROM edges WHERE dst_id = ?`,
 			nodeID,
 		)
@@ -305,7 +305,7 @@ func (r *GraphRepository) GetConnected(nodeID string, maxDepth int) (*SubGraph, 
 			UNION
 			SELECT e.src_id, c.depth + 1 FROM edges e JOIN connected c ON e.dst_id = c.id WHERE c.depth < ?
 		)
-		SELECT DISTINCT e.id, e.src_id, e.dst_id, e.kind, e.properties, e.created_at
+		SELECT DISTINCT e.id, e.src_id, e.dst_id, e.kind, e.properties, e.source_scanner, e.created_at
 		FROM edges e
 		JOIN connected c1 ON e.src_id = c1.id
 		JOIN connected c2 ON e.dst_id = c2.id`,
@@ -448,19 +448,22 @@ func scanEdges(rows *sql.Rows) ([]db.GraphEdge, error) {
 	for rows.Next() {
 		var edge db.GraphEdge
 		var propsJSON string
+		var sourceScanner sql.NullString
 
 		err := rows.Scan(
 			&edge.ID, &edge.SrcID, &edge.DstID, &edge.Kind,
-			&propsJSON, &edge.CreatedAt,
+			&propsJSON, &sourceScanner, &edge.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan edge: %w", err)
 		}
 
-		var unmarshalErr error
-		edge.Properties, unmarshalErr = db.UnmarshalProperties(propsJSON)
-		if unmarshalErr != nil {
-			return nil, fmt.Errorf("unmarshal properties: %w", unmarshalErr)
+		edge.Properties, err = db.UnmarshalProperties(propsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("unmarshal properties: %w", err)
+		}
+		if sourceScanner.Valid {
+			edge.SourceScanner = &sourceScanner.String
 		}
 		edges = append(edges, edge)
 	}

@@ -200,7 +200,7 @@ export function buildScanOutput(
       }
 
       edges.push({
-        id: `edge:entity:${model.name}-field_relation-entity:${field.type}`,
+        id: `edge:entity:${model.name}-field_relation:${field.name}-entity:${field.type}`,
         srcId: `entity:${model.name}`,
         dstId: `entity:${field.type}`,
         kind: "field_relation",

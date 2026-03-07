@@ -1,9 +1,12 @@
 import { Project, SyntaxKind, type SourceFile, type JsxSelfClosingElement, type JsxElement, type Node } from 'ts-morph';
-import { join, relative } from 'path';
+import { existsSync, readFileSync } from 'node:fs';
+import { globSync } from 'fs';
+import { join, relative } from 'node:path';
 import type { ScanOutput, ScanNode, ScanWarning } from './types.js';
 
 interface ParseOptions {
   routeFiles: string[];
+  ignorePaths?: string[];
 }
 
 interface RouteInfo {
@@ -25,6 +28,49 @@ export async function parseReactRouterPages(
   let filesScanned = 0;
   let errors = 0;
 
+  const files = options?.routeFiles ?? [];
+  const ignorePaths = options?.ignorePaths ?? [];
+  if (files.length === 0) {
+    const commonLocations = [
+      'src/routes.tsx', 'src/routes.ts',
+      'app/routes.tsx', 'app/routes.ts',
+      'src/app/routes.tsx', 'src/app/routes.ts',
+      'src/App.tsx', 'src/App.jsx',
+      'src/MainApp.tsx', 'src/MainApp.jsx',
+      'frontend/src/App.tsx', 'frontend/src/App.jsx',
+      'frontend/src/MainApp.tsx', 'frontend/src/MainApp.jsx',
+    ];
+    for (const loc of commonLocations) {
+      if (existsSync(join(projectRoot, loc))) {
+        files.push(loc);
+      }
+    }
+
+    // Broader search: find TSX/JSX files that contain route definitions
+    if (files.length === 0) {
+      const candidates = globSync('**/*.{tsx,jsx}', { cwd: projectRoot });
+
+      for (const candidate of candidates) {
+        // Skip ignored paths
+        if (ignorePaths.some(ip => candidate === ip || candidate.startsWith(ip + '/'))) continue;
+        // Skip node_modules, dist, build even if not in ignorePaths
+        if (/node_modules|dist\/|build\/|\.next\//.test(candidate)) continue;
+
+        try {
+          const content = readFileSync(join(projectRoot, candidate), 'utf-8');
+          if (content.includes('<Route') || content.includes('createBrowserRouter') || content.includes('createRoutesFromElements')) {
+            files.push(candidate);
+          }
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+  }
+
+  // Filter out files matching any ignorePath
+  const filteredIgnored = files.filter(f => !ignorePaths.some(ip => f === ip || f.startsWith(ip + '/')));
+
   const tsMorphProject = new Project({
     compilerOptions: {
       allowJs: true,
@@ -34,7 +80,8 @@ export async function parseReactRouterPages(
     skipAddingFilesFromTsConfig: true,
   });
 
-  for (const file of options.routeFiles) {
+  const seenIds = new Set<string>();
+  for (const file of filteredIgnored) {
     filesScanned++;
     const fullPath = join(projectRoot, file);
     try {
@@ -42,7 +89,13 @@ export async function parseReactRouterPages(
       const relPath = relative(projectRoot, fullPath);
       const routes = extractRoutes(sourceFile);
       for (const route of routes) {
-        const id = `page:${route.path}`;
+        let id = `page:${route.path}`;
+        let counter = 1;
+        while (seenIds.has(id)) {
+          counter++;
+          id = `page:${route.path}#${counter}`;
+        }
+        seenIds.add(id);
         const node: ScanNode = {
           id,
           kind: 'page',

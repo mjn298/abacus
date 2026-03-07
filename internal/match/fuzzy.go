@@ -9,8 +9,8 @@ import (
 
 // FuzzyCandidate holds an action node and its FTS5 BM25 score.
 type FuzzyCandidate struct {
-	Action db.GraphNode
-	Score  float64
+	Action db.GraphNode `json:"action"`
+	Score  float64      `json:"score"`
 }
 
 // FuzzyMatcher searches for action nodes matching step text via FTS5
@@ -44,13 +44,20 @@ var stopWords = map[string]bool{
 }
 
 // Tokenize extracts meaningful words from step text by stripping Gherkin
-// keywords, stop words, and non-alphabetic tokens.
+// keywords, stop words, and non-alphanumeric tokens.
 func Tokenize(text string) []string {
 	words := strings.Fields(strings.ToLower(text))
 	var tokens []string
 	for _, w := range words {
-		// Strip non-alpha characters from edges
-		w = strings.Trim(w, `"'.,;:!?()[]{}`)
+		// Strip all non-alphanumeric characters (including FTS5 special chars like / * + - ^ ~)
+		var cleaned []byte
+		for i := 0; i < len(w); i++ {
+			c := w[i]
+			if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+				cleaned = append(cleaned, c)
+			}
+		}
+		w = string(cleaned)
 		if w == "" {
 			continue
 		}

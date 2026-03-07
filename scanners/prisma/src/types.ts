@@ -6,6 +6,7 @@ export interface ScanInput {
   options: {
     schemaPath?: string;
   };
+  ignorePaths?: string[];
 }
 
 export interface ScannerInfo {

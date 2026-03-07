@@ -5,6 +5,7 @@ export interface ScanInput {
   options: {
     routeFiles: string[];
   };
+  ignorePaths?: string[];
 }
 
 /** Scanner Protocol v1 -- Output to stdout */

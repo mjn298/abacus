@@ -124,7 +124,7 @@ func TestNodeInsertAndSelect_AllKinds(t *testing.T) {
 	}
 }
 
-func TestEdgeUniqueConstraint(t *testing.T) {
+func TestEdgePrimaryKeyConstraint(t *testing.T) {
 	db := openAndInitTestDB(t)
 
 	// Insert two nodes
@@ -139,18 +139,26 @@ func TestEdgeUniqueConstraint(t *testing.T) {
 
 	// Insert edge
 	_, err = db.Exec(
-		"INSERT INTO edges (id, src_id, dst_id, kind) VALUES ('e1', 'n1', 'n2', 'uses_route')",
+		"INSERT INTO edges (id, src_id, dst_id, kind) VALUES ('e1', 'n1', 'n2', 'field_relation')",
 	)
 	if err != nil {
 		t.Fatalf("inserting edge: %v", err)
 	}
 
-	// Duplicate should fail
+	// Same src/dst/kind with different id should succeed (no UNIQUE constraint)
 	_, err = db.Exec(
-		"INSERT INTO edges (id, src_id, dst_id, kind) VALUES ('e2', 'n1', 'n2', 'uses_route')",
+		"INSERT INTO edges (id, src_id, dst_id, kind) VALUES ('e2', 'n1', 'n2', 'field_relation')",
+	)
+	if err != nil {
+		t.Fatalf("inserting second edge with same src/dst/kind but different id should succeed: %v", err)
+	}
+
+	// Duplicate primary key should still fail
+	_, err = db.Exec(
+		"INSERT INTO edges (id, src_id, dst_id, kind) VALUES ('e1', 'n1', 'n2', 'field_relation')",
 	)
 	if err == nil {
-		t.Fatal("expected unique constraint violation, got nil")
+		t.Fatal("expected primary key violation, got nil")
 	}
 }
 
@@ -325,6 +333,71 @@ func TestCascadingEdgeDeletion(t *testing.T) {
 	}
 	if edgeCount != 0 {
 		t.Errorf("edge count after cascade = %d, want 0", edgeCount)
+	}
+}
+
+func TestEdgeSourceScanner(t *testing.T) {
+	db := openAndInitTestDB(t)
+
+	// Insert two nodes
+	_, err := db.Exec("INSERT INTO nodes (id, kind, name, source) VALUES ('n1', 'route', 'r1', 'scan')")
+	if err != nil {
+		t.Fatalf("inserting n1: %v", err)
+	}
+	_, err = db.Exec("INSERT INTO nodes (id, kind, name, source) VALUES ('n2', 'entity', 'e1', 'scan')")
+	if err != nil {
+		t.Fatalf("inserting n2: %v", err)
+	}
+
+	// Insert edge with source_scanner set
+	_, err = db.Exec(
+		"INSERT INTO edges (id, src_id, dst_id, kind, source_scanner) VALUES ('e1', 'n1', 'n2', 'touches_entity', 'prisma')",
+	)
+	if err != nil {
+		t.Fatalf("inserting edge with source_scanner: %v", err)
+	}
+
+	var gotScanner sql.NullString
+	err = db.QueryRow("SELECT source_scanner FROM edges WHERE id='e1'").Scan(&gotScanner)
+	if err != nil {
+		t.Fatalf("selecting source_scanner: %v", err)
+	}
+	if !gotScanner.Valid {
+		t.Fatal("expected source_scanner to be non-NULL")
+	}
+	if gotScanner.String != "prisma" {
+		t.Errorf("source_scanner = %q, want %q", gotScanner.String, "prisma")
+	}
+}
+
+func TestEdgeSourceScanner_Null(t *testing.T) {
+	db := openAndInitTestDB(t)
+
+	// Insert two nodes
+	_, err := db.Exec("INSERT INTO nodes (id, kind, name, source) VALUES ('n1', 'route', 'r1', 'scan')")
+	if err != nil {
+		t.Fatalf("inserting n1: %v", err)
+	}
+	_, err = db.Exec("INSERT INTO nodes (id, kind, name, source) VALUES ('n2', 'entity', 'e1', 'scan')")
+	if err != nil {
+		t.Fatalf("inserting n2: %v", err)
+	}
+
+	// Insert edge without source_scanner
+	_, err = db.Exec(
+		"INSERT INTO edges (id, src_id, dst_id, kind) VALUES ('e1', 'n1', 'n2', 'touches_entity')",
+	)
+	if err != nil {
+		t.Fatalf("inserting edge without source_scanner: %v", err)
+	}
+
+	var gotScanner sql.NullString
+	err = db.QueryRow("SELECT source_scanner FROM edges WHERE id='e1'").Scan(&gotScanner)
+	if err != nil {
+		t.Fatalf("selecting source_scanner: %v", err)
+	}
+	if gotScanner.Valid {
+		t.Errorf("expected source_scanner to be NULL, got %q", gotScanner.String)
 	}
 }
 
