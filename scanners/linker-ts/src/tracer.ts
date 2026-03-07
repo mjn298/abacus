@@ -24,7 +24,7 @@ export function traceImports(
   sourceFile: SourceFile,
   entityByName: Map<string, string>,
   options: Partial<TraceOptions> = {},
-  fileEntityCache: Map<string, Set<string>> = new Map(),
+  fileEntityCache: Map<string, { entities: Set<string>; remainingDepth: number }> = new Map(),
 ): TraceResult {
   const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
   const visited = new Set<string>();
@@ -34,48 +34,49 @@ export function traceImports(
     file: SourceFile,
     depth: number,
     currentPath: string[],
-  ): void {
+  ): Set<string> {
     const filePath = file.getFilePath();
 
+    const remainingDepth = maxDepth - depth;
+
     if (depth > maxDepth || visited.has(filePath)) {
-      return;
+      return new Set();
     }
 
     if (TEST_FILE_RE.test(filePath)) {
-      return;
+      return new Set();
     }
-
-    visited.add(filePath);
 
     const pathWithFile = [...currentPath, filePath];
 
-    // Check cache first — cache stores entity node IDs directly
+    // Check cache — stores TRANSITIVE entity IDs (direct + from imports)
+    // Only use cache if the cached result was explored with at least as much depth budget
     const cached = fileEntityCache.get(filePath);
-    if (cached) {
-      for (const entityId of cached) {
+    if (cached && remainingDepth <= cached.remainingDepth) {
+      for (const entityId of cached.entities) {
         if (!entities.has(entityId)) {
           entities.set(entityId, pathWithFile);
         }
       }
-      return;
+      visited.add(filePath);
+      return cached.entities;
     }
 
-    const discoveredEntities = new Set<string>();
+    visited.add(filePath);
+
+    const allEntities = new Set<string>();
 
     // Scan for prisma.modelName.method() calls via matcher
     const matchedEntityIds = findPrismaAccesses(file, entityByName);
 
     for (const entityId of matchedEntityIds) {
-      discoveredEntities.add(entityId);
+      allEntities.add(entityId);
       if (!entities.has(entityId)) {
         entities.set(entityId, pathWithFile);
       }
     }
 
-    // Cache discovered entity IDs for this file
-    fileEntityCache.set(filePath, discoveredEntities);
-
-    // Trace into imported files
+    // Trace into imported files — collect their transitive entities
     const importDeclarations = file.getImportDeclarations();
     for (const imp of importDeclarations) {
       const specifier = imp.getModuleSpecifierValue();
@@ -87,9 +88,17 @@ export function traceImports(
 
       const resolved = imp.getModuleSpecifierSourceFile();
       if (resolved) {
-        traceFile(resolved, depth + 1, pathWithFile);
+        const childEntities = traceFile(resolved, depth + 1, pathWithFile);
+        for (const entityId of childEntities) {
+          allEntities.add(entityId);
+        }
       }
     }
+
+    // Cache the FULL transitive set with the depth budget used
+    // Overwrite if we explored with a higher remaining depth than what was cached
+    fileEntityCache.set(filePath, { entities: allEntities, remainingDepth });
+    return allEntities;
   }
 
   traceFile(sourceFile, 0, []);

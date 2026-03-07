@@ -44,7 +44,7 @@ export function processRoutes(
       });
 
   // --- Shared cache across all route traces ---
-  const fileEntityCache = new Map<string, Set<string>>();
+  const fileEntityCache = new Map<string, { entities: Set<string>; remainingDepth: number }>();
 
   // --- Deduplicate tracker ---
   const seenEdges = new Set<string>();
