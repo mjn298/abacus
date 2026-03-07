@@ -25,7 +25,7 @@ func NewRunner(timeout time.Duration) *Runner {
 // RunScanner executes a single scanner command, pipes ScanInput as JSON to
 // stdin, and parses the ScanOutput JSON from stdout. The command string is
 // split on whitespace into executable + args.
-func (r *Runner) RunScanner(ctx context.Context, command string, input ScanInput) (*ScanOutput, error) {
+func (r *Runner) RunScanner(ctx context.Context, command string, input ScanInput, knownNodeIDs map[string]bool) (*ScanOutput, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -67,7 +67,7 @@ func (r *Runner) RunScanner(ctx context.Context, command string, input ScanInput
 		return nil, fmt.Errorf("parsing scanner output: %w (raw: %s)", err, raw)
 	}
 
-	if validationErrs := ValidateOutput(&output, nil); len(validationErrs) > 0 {
+	if validationErrs := ValidateOutput(&output, knownNodeIDs); len(validationErrs) > 0 {
 		return nil, fmt.Errorf("scanner output validation failed: %s", strings.Join(validationErrs, "; "))
 	}
 
@@ -88,7 +88,7 @@ func (r *Runner) RunAll(ctx context.Context, projectRoot string, configs []confi
 			IgnorePaths: ignorePaths,
 		}
 
-		out, err := r.RunScanner(ctx, cfg.Command, input)
+		out, err := r.RunScanner(ctx, cfg.Command, input, nil)
 		if err != nil {
 			scannerID := cfg.Command // best identifier we have
 			merged.Errors = append(merged.Errors, ScannerError{

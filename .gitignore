@@ -13,6 +13,9 @@ bin/
 # Beads medatada
 .beads/metadata.json
 
+# Test repositories for integration testing
+test_repos/
+
 # Node.js scanner packages
 node_modules/
 dist/

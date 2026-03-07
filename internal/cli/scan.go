@@ -27,6 +27,11 @@ func init() {
 	rootCmd.AddCommand(scanCmd)
 }
 
+type scannerEntry struct {
+	id  string
+	cfg config.ScannerConfig
+}
+
 type scanResult struct {
 	NodesIngested int                    `json:"nodes_ingested"`
 	EdgesCreated  int                    `json:"edges_created"`
@@ -55,31 +60,40 @@ func runScan(cmd *cobra.Command, args []string) error {
 		filterType = args[0]
 	}
 
-	// Check that at least one scanner matches
-	matchCount := 0
-	for id := range cfg.Scanners {
-		if filterType == "" || id == filterType {
-			matchCount++
-		}
-	}
-
-	if filterType != "" && matchCount == 0 {
-		return fmt.Errorf("no scanner found with ID %q", filterType)
-	}
-
-	if matchCount == 0 {
-		return fmt.Errorf("no scanners configured; check %s", configPath)
-	}
-
-	// Run scanners individually with progress output
-	runner := scanner.NewRunner(60 * time.Second)
-	ctx := context.Background()
-	merged := &scanner.MergedScanOutput{}
-
+	// Separate scanners into scan-phase and link-phase lists
+	var scanPhaseConfigs []scannerEntry
+	var linkPhaseConfigs []scannerEntry
 	for id, sc := range cfg.Scanners {
 		if filterType != "" && id != filterType {
 			continue
 		}
+		phase := sc.Phase
+		if phase == "" {
+			phase = "scan"
+		}
+		entry := scannerEntry{id: id, cfg: sc}
+		if phase == "link" {
+			linkPhaseConfigs = append(linkPhaseConfigs, entry)
+		} else {
+			scanPhaseConfigs = append(scanPhaseConfigs, entry)
+		}
+	}
+
+	if filterType != "" && len(scanPhaseConfigs)+len(linkPhaseConfigs) == 0 {
+		return fmt.Errorf("no scanner found with ID %q", filterType)
+	}
+
+	if len(scanPhaseConfigs)+len(linkPhaseConfigs) == 0 {
+		return fmt.Errorf("no scanners configured; check %s", configPath)
+	}
+
+	// Run scan-phase scanners
+	runner := scanner.NewRunner(60 * time.Second)
+	ctx := context.Background()
+	merged := &scanner.MergedScanOutput{}
+
+	for _, entry := range scanPhaseConfigs {
+		id, sc := entry.id, entry.cfg
 
 		if showProgress {
 			fmt.Fprintf(os.Stderr, "Scanning with %s...", id)
@@ -96,7 +110,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 			IgnorePaths: cfg.Project.IgnorePaths,
 		}
 
-		out, err := runner.RunScanner(ctx, sc.Command, input)
+		out, err := runner.RunScanner(ctx, sc.Command, input, nil)
 		if err != nil {
 			if showProgress {
 				fmt.Fprintf(os.Stderr, " error\n")
@@ -133,7 +147,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	repo := graph.NewGraphRepository(database)
 
-	// Ingest nodes
+	// Ingest scan-phase nodes
 	graphNodes := make([]db.GraphNode, len(merged.Nodes))
 	for i, sn := range merged.Nodes {
 		var sf *string
@@ -162,7 +176,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, " done\n")
 	}
 
-	// Ingest edges
+	// Ingest scan-phase edges
 	if showProgress {
 		fmt.Fprintf(os.Stderr, "Ingesting %d edges...", len(merged.Edges))
 	}
@@ -184,6 +198,108 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	if showProgress {
 		fmt.Fprintf(os.Stderr, " done (%d created, %d warnings)\n", edgesCreated, len(warnings))
+	}
+
+	// Run link-phase scanners
+	if len(linkPhaseConfigs) > 0 {
+		var existingNodes []scanner.ScanNodeRef
+
+		if len(scanPhaseConfigs) > 0 {
+			for _, sn := range merged.Nodes {
+				if sn.Kind == "route" || sn.Kind == "entity" {
+					existingNodes = append(existingNodes, scanner.ScanNodeRef{
+						ID:         sn.ID,
+						Kind:       sn.Kind,
+						Name:       sn.Name,
+						SourceFile: sn.SourceFile,
+					})
+				}
+			}
+		} else {
+			existingNodes, err = repo.GetNodeRefsByKinds([]db.NodeKind{db.NodeRoute, db.NodeEntity})
+			if err != nil {
+				return fmt.Errorf("querying existing nodes for linker: %w", err)
+			}
+		}
+
+		knownNodeIDs := make(map[string]bool, len(existingNodes))
+		for _, ref := range existingNodes {
+			knownNodeIDs[ref.ID] = true
+		}
+
+		linkRunner := scanner.NewRunner(5 * time.Minute)
+
+		for _, entry := range linkPhaseConfigs {
+			id, sc := entry.id, entry.cfg
+
+			if showProgress {
+				fmt.Fprintf(os.Stderr, "Linking with %s...", id)
+			}
+
+			opts := sc.Options
+			if opts == nil {
+				opts = map[string]interface{}{}
+			}
+			input := scanner.ScanInput{
+				Version:       1,
+				ProjectRoot:   cfg.Project.Root,
+				Options:       opts,
+				IgnorePaths:   cfg.Project.IgnorePaths,
+				ExistingNodes: existingNodes,
+			}
+
+			out, err := linkRunner.RunScanner(ctx, sc.Command, input, knownNodeIDs)
+			if err != nil {
+				if showProgress {
+					fmt.Fprintf(os.Stderr, " error\n")
+				}
+				merged.Errors = append(merged.Errors, scanner.ScannerError{
+					ScannerID: sc.Command,
+					Error:     err.Error(),
+				})
+				merged.Stats.TotalErrors++
+				continue
+			}
+
+			if showProgress {
+				fmt.Fprintf(os.Stderr, " done (%d edges, %dms)\n",
+					out.Stats.EdgesFound, out.Stats.DurationMs)
+			}
+
+			merged.Warnings = append(merged.Warnings, out.Warnings...)
+			merged.Stats.TotalEdgesFound += out.Stats.EdgesFound
+			merged.Stats.TotalErrors += out.Stats.Errors
+			merged.Stats.ScannerCount++
+
+			if _, err := repo.DeleteEdgesBySourceScanner(id); err != nil {
+				return fmt.Errorf("deleting stale edges for scanner %s: %w", id, err)
+			}
+
+			linkEdges := make([]db.GraphEdge, len(out.Edges))
+			for i, se := range out.Edges {
+				scannerID := id
+				linkEdges[i] = db.GraphEdge{
+					ID:            se.ID,
+					SrcID:         se.SrcID,
+					DstID:         se.DstID,
+					Kind:          db.EdgeKind(se.Kind),
+					Properties:    se.Properties,
+					SourceScanner: &scannerID,
+				}
+			}
+
+			if showProgress {
+				fmt.Fprintf(os.Stderr, "Ingesting %d linker edges...", len(linkEdges))
+			}
+			linkerEdgesCreated, err := repo.BulkUpsertEdges(linkEdges)
+			if err != nil {
+				return fmt.Errorf("ingesting linker edges for %s: %w", id, err)
+			}
+			edgesCreated += linkerEdgesCreated
+			if showProgress {
+				fmt.Fprintf(os.Stderr, " done\n")
+			}
+		}
 	}
 
 	// Collect warning messages from scanner output

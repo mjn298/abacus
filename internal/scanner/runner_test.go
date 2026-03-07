@@ -28,7 +28,7 @@ func TestRunScanner_Success(t *testing.T) {
 		Options:     map[string]any{},
 	}
 
-	out, err := r.RunScanner(context.Background(), echoScannerPath(t), input)
+	out, err := r.RunScanner(context.Background(), echoScannerPath(t), input, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestRunScanner_ValidationErrors(t *testing.T) {
 
 	// Use a command that outputs invalid scanner output (version 99)
 	cmd := `bash -c 'echo "{\"version\":99,\"scanner\":{\"id\":\"\"},\"nodes\":[],\"edges\":[],\"warnings\":[],\"stats\":{}}"'`
-	_, err := r.RunScanner(context.Background(), cmd, input)
+	_, err := r.RunScanner(context.Background(), cmd, input, nil)
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
 	}
@@ -65,7 +65,7 @@ func TestRunScanner_BadJSON(t *testing.T) {
 	input := ScanInput{Version: 1, ProjectRoot: "/tmp", Options: map[string]any{}}
 
 	cmd := `bash -c 'echo "not json at all"'`
-	_, err := r.RunScanner(context.Background(), cmd, input)
+	_, err := r.RunScanner(context.Background(), cmd, input, nil)
 	if err == nil {
 		t.Fatal("expected JSON parse error, got nil")
 	}
@@ -76,7 +76,7 @@ func TestRunScanner_NonZeroExit(t *testing.T) {
 	input := ScanInput{Version: 1, ProjectRoot: "/tmp", Options: map[string]any{}}
 
 	cmd := `bash -c 'echo "scanner failed" >&2; exit 1'`
-	_, err := r.RunScanner(context.Background(), cmd, input)
+	_, err := r.RunScanner(context.Background(), cmd, input, nil)
 	if err == nil {
 		t.Fatal("expected error from non-zero exit, got nil")
 	}
@@ -87,7 +87,7 @@ func TestRunScanner_Timeout(t *testing.T) {
 	input := ScanInput{Version: 1, ProjectRoot: "/tmp", Options: map[string]any{}}
 
 	cmd := `bash -c 'sleep 10'`
-	_, err := r.RunScanner(context.Background(), cmd, input)
+	_, err := r.RunScanner(context.Background(), cmd, input, nil)
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}

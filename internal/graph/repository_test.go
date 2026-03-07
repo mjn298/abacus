@@ -901,6 +901,232 @@ func TestBulkUpsertNodes_Performance(t *testing.T) {
 
 // --- Edge case: nil properties ---
 
+// --- BulkUpsertEdges Tests ---
+
+func TestBulkUpsertEdges(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	repo.InsertNode(makeNode("n1", db.NodeRoute))
+	repo.InsertNode(makeNode("n2", db.NodeEntity))
+	repo.InsertNode(makeNode("n3", db.NodePage))
+
+	edges := []db.GraphEdge{
+		{ID: "e1", SrcID: "n1", DstID: "n2", Kind: db.EdgeUsesRoute},
+		{ID: "e2", SrcID: "n2", DstID: "n3", Kind: db.EdgeOnPage},
+		{ID: "e3", SrcID: "n1", DstID: "n3", Kind: db.EdgeRelatesTo},
+	}
+
+	count, err := repo.BulkUpsertEdges(edges)
+	if err != nil {
+		t.Fatalf("BulkUpsertEdges: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("count = %d, want 3", count)
+	}
+
+	got, err := repo.GetEdgesFrom("n1", nil)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 edges from n1, got %d", len(got))
+	}
+}
+
+func TestBulkUpsertEdges_Empty(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	count, err := repo.BulkUpsertEdges(nil)
+	if err != nil {
+		t.Fatalf("BulkUpsertEdges empty: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0", count)
+	}
+}
+
+func TestBulkUpsertEdges_FKViolation_ContinuesOtherEdges(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	repo.InsertNode(makeNode("n1", db.NodeRoute))
+	repo.InsertNode(makeNode("n2", db.NodeEntity))
+	repo.InsertNode(makeNode("n3", db.NodePage))
+
+	edges := []db.GraphEdge{
+		{ID: "e1", SrcID: "n1", DstID: "n2", Kind: db.EdgeUsesRoute},
+		{ID: "e2", SrcID: "nonexistent", DstID: "n2", Kind: db.EdgeRelatesTo},
+		{ID: "e3", SrcID: "n2", DstID: "n3", Kind: db.EdgeOnPage},
+	}
+
+	count, err := repo.BulkUpsertEdges(edges)
+	if err != nil {
+		t.Fatalf("BulkUpsertEdges should not return error on FK violation: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d, want 2 (1 FK violation skipped)", count)
+	}
+
+	got1, _ := repo.GetEdgesFrom("n1", nil)
+	if len(got1) != 1 {
+		t.Errorf("expected 1 edge from n1, got %d", len(got1))
+	}
+	got2, _ := repo.GetEdgesFrom("n2", nil)
+	if len(got2) != 1 {
+		t.Errorf("expected 1 edge from n2, got %d", len(got2))
+	}
+}
+
+func TestBulkUpsertEdges_WithSourceScanner(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	repo.InsertNode(makeNode("n1", db.NodeRoute))
+	repo.InsertNode(makeNode("n2", db.NodeEntity))
+
+	scanner := "prisma"
+	edges := []db.GraphEdge{
+		{ID: "e1", SrcID: "n1", DstID: "n2", Kind: db.EdgeTouchesEntity, SourceScanner: &scanner},
+	}
+
+	count, err := repo.BulkUpsertEdges(edges)
+	if err != nil {
+		t.Fatalf("BulkUpsertEdges: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+
+	got, _ := repo.GetEdgesFrom("n1", nil)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(got))
+	}
+	if got[0].SourceScanner == nil || *got[0].SourceScanner != "prisma" {
+		t.Errorf("SourceScanner = %v, want %q", got[0].SourceScanner, "prisma")
+	}
+}
+
+// --- DeleteEdgesBySourceScanner Tests ---
+
+func TestDeleteEdgesBySourceScanner(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	repo.InsertNode(makeNode("n1", db.NodeRoute))
+	repo.InsertNode(makeNode("n2", db.NodeEntity))
+	repo.InsertNode(makeNode("n3", db.NodePage))
+
+	scannerA := "scanner-a"
+	scannerB := "scanner-b"
+	repo.InsertEdge(&db.GraphEdge{ID: "e1", SrcID: "n1", DstID: "n2", Kind: db.EdgeUsesRoute, SourceScanner: &scannerA})
+	repo.InsertEdge(&db.GraphEdge{ID: "e2", SrcID: "n1", DstID: "n3", Kind: db.EdgeOnPage, SourceScanner: &scannerA})
+	repo.InsertEdge(&db.GraphEdge{ID: "e3", SrcID: "n2", DstID: "n3", Kind: db.EdgeRelatesTo, SourceScanner: &scannerB})
+
+	count, err := repo.DeleteEdgesBySourceScanner("scanner-a")
+	if err != nil {
+		t.Fatalf("DeleteEdgesBySourceScanner: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
+	}
+
+	remaining, _ := repo.GetEdgesFrom("n2", nil)
+	if len(remaining) != 1 {
+		t.Errorf("expected 1 remaining edge, got %d", len(remaining))
+	}
+	if remaining[0].ID != "e3" {
+		t.Errorf("remaining edge ID = %q, want %q", remaining[0].ID, "e3")
+	}
+}
+
+func TestDeleteEdgesBySourceScanner_NoMatches(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	count, err := repo.DeleteEdgesBySourceScanner("nonexistent-scanner")
+	if err != nil {
+		t.Fatalf("DeleteEdgesBySourceScanner: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0", count)
+	}
+}
+
+// --- GetNodeRefsByKinds Tests ---
+
+func TestGetNodeRefsByKinds(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	repo.InsertNode(makeNode("r1", db.NodeRoute))
+	repo.InsertNode(makeNode("r2", db.NodeRoute))
+	repo.InsertNode(makeNode("e1", db.NodeEntity))
+	repo.InsertNode(makeNode("p1", db.NodePage))
+
+	refs, err := repo.GetNodeRefsByKinds([]db.NodeKind{db.NodeRoute, db.NodeEntity})
+	if err != nil {
+		t.Fatalf("GetNodeRefsByKinds: %v", err)
+	}
+	if len(refs) != 3 {
+		t.Errorf("expected 3 refs, got %d", len(refs))
+	}
+
+	ids := map[string]bool{}
+	for _, ref := range refs {
+		ids[ref.ID] = true
+		if ref.Kind == "" {
+			t.Errorf("ref %s has empty Kind", ref.ID)
+		}
+		if ref.Name == "" {
+			t.Errorf("ref %s has empty Name", ref.ID)
+		}
+	}
+	for _, id := range []string{"r1", "r2", "e1"} {
+		if !ids[id] {
+			t.Errorf("expected ref %s not found", id)
+		}
+	}
+	if ids["p1"] {
+		t.Error("page node p1 should not be in results")
+	}
+}
+
+func TestGetNodeRefsByKinds_Empty(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	refs, err := repo.GetNodeRefsByKinds(nil)
+	if err != nil {
+		t.Fatalf("GetNodeRefsByKinds empty: %v", err)
+	}
+	if refs != nil {
+		t.Errorf("expected nil, got %v", refs)
+	}
+}
+
+func TestGetNodeRefsByKinds_WithSourceFile(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	sf := "src/routes.ts"
+	node := makeNode("r1", db.NodeRoute)
+	node.SourceFile = &sf
+	repo.InsertNode(node)
+
+	refs, err := repo.GetNodeRefsByKinds([]db.NodeKind{db.NodeRoute})
+	if err != nil {
+		t.Fatalf("GetNodeRefsByKinds: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 ref, got %d", len(refs))
+	}
+	if refs[0].SourceFile != "src/routes.ts" {
+		t.Errorf("SourceFile = %q, want %q", refs[0].SourceFile, "src/routes.ts")
+	}
+}
+
 func TestInsertNode_NilProperties(t *testing.T) {
 	database := setupTestDB(t)
 	repo := NewGraphRepository(database)

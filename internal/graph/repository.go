@@ -3,8 +3,11 @@ package graph
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"strings"
 
 	"github.com/mjn/abacus/internal/db"
+	"github.com/mjn/abacus/internal/scanner"
 )
 
 // GraphRepository provides CRUD operations, search, and traversal for
@@ -376,6 +379,108 @@ func (r *GraphRepository) BulkUpsertNodes(nodes []db.GraphNode) (int, error) {
 		return 0, fmt.Errorf("commit transaction: %w", err)
 	}
 	return count, nil
+}
+
+func (r *GraphRepository) BulkUpsertEdges(edges []db.GraphEdge) (int, error) {
+	if len(edges) == 0 {
+		return 0, nil
+	}
+
+	tx, err := r.database.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(
+		`INSERT OR REPLACE INTO edges (id, src_id, dst_id, kind, properties, source_scanner)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("prepare upsert: %w", err)
+	}
+	defer stmt.Close()
+
+	count := 0
+	fkWarnings := 0
+	for _, edge := range edges {
+		props, err := db.MarshalProperties(edge.Properties)
+		if err != nil {
+			return 0, fmt.Errorf("marshal properties for %q: %w", edge.ID, err)
+		}
+
+		_, err = stmt.Exec(
+			edge.ID, edge.SrcID, edge.DstID, string(edge.Kind), props, edge.SourceScanner,
+		)
+		if err != nil {
+			if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
+				fkWarnings++
+				log.Printf("WARN: skipping edge %q: FK violation (src=%q dst=%q)", edge.ID, edge.SrcID, edge.DstID)
+				continue
+			}
+			return 0, fmt.Errorf("upsert edge %q: %w", edge.ID, err)
+		}
+		count++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit transaction: %w", err)
+	}
+	return count, nil
+}
+
+func (r *GraphRepository) DeleteEdgesBySourceScanner(sourceScanner string) (int, error) {
+	result, err := r.database.Exec("DELETE FROM edges WHERE source_scanner = ?", sourceScanner)
+	if err != nil {
+		return 0, fmt.Errorf("delete edges by source scanner %q: %w", sourceScanner, err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("rows affected: %w", err)
+	}
+	return int(n), nil
+}
+
+func (r *GraphRepository) GetNodeRefsByKinds(kinds []db.NodeKind) ([]scanner.ScanNodeRef, error) {
+	if len(kinds) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(kinds))
+	args := make([]any, len(kinds))
+	for i, k := range kinds {
+		placeholders[i] = "?"
+		args[i] = string(k)
+	}
+
+	query := fmt.Sprintf(
+		"SELECT id, kind, name, source_file FROM nodes WHERE kind IN (%s)",
+		strings.Join(placeholders, ", "),
+	)
+
+	rows, err := r.database.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get node refs by kinds: %w", err)
+	}
+	defer rows.Close()
+
+	var refs []scanner.ScanNodeRef
+	for rows.Next() {
+		var ref scanner.ScanNodeRef
+		var sourceFile sql.NullString
+		err := rows.Scan(&ref.ID, &ref.Kind, &ref.Name, &sourceFile)
+		if err != nil {
+			return nil, fmt.Errorf("scan node ref: %w", err)
+		}
+		if sourceFile.Valid {
+			ref.SourceFile = sourceFile.String
+		}
+		refs = append(refs, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate node refs: %w", err)
+	}
+	return refs, nil
 }
 
 // scanNode scans a single row into a GraphNode.
