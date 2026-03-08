@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -13,18 +15,18 @@ import (
 	"github.com/mjn/abacus/internal/graph"
 	"github.com/mjn/abacus/internal/match"
 	"github.com/mjn/abacus/internal/scanner"
-	"time"
 )
 
 // AbacusServer wraps the MCP server with all abacus services.
 type AbacusServer struct {
-	server  *gomcp.Server
-	repo    *graph.GraphRepository
-	actions *graph.ActionService
-	matcher *match.MatchService
-	runner  *scanner.Runner
-	cfg     *config.Config
-	db      *sql.DB
+	server    *gomcp.Server
+	repo      *graph.GraphRepository
+	actions   *graph.ActionService
+	matcher   *match.MatchService
+	runner    *scanner.Runner
+	cfg       *config.Config
+	db        *sql.DB
+	closeOnce sync.Once
 }
 
 // NewAbacusServer creates a new AbacusServer, opening the DB and loading config.
@@ -68,9 +70,22 @@ func NewAbacusServer(dbPath, configPath string) (*AbacusServer, error) {
 	return srv, nil
 }
 
+// Connect establishes an in-process MCP session over the given transport.
+// Useful for testing with gomcp.NewInMemoryTransports().
+func (s *AbacusServer) Connect(ctx context.Context, transport gomcp.Transport) (*gomcp.ServerSession, error) {
+	return s.server.Connect(ctx, transport, nil)
+}
+
+// Close releases the database connection. Safe to call multiple times.
+func (s *AbacusServer) Close() error {
+	var err error
+	s.closeOnce.Do(func() { err = s.db.Close() })
+	return err
+}
+
 // Run starts the MCP server on stdio.
 func (s *AbacusServer) Run(ctx context.Context) error {
-	defer s.db.Close()
+	defer s.Close()
 	return s.server.Run(ctx, &gomcp.StdioTransport{})
 }
 

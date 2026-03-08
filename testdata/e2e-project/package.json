@@ -1,0 +1,11 @@
+{
+  "name": "e2e-project",
+  "private": true,
+  "dependencies": {
+    "express": "^4.18.0",
+    "@prisma/client": "^5.0.0",
+    "react-router-dom": "^6.0.0",
+    "@orpc/server": "^0.1.0",
+    "@orpc/contract": "^0.1.0"
+  }
+}
