@@ -1,7 +1,6 @@
 package match
 
 import (
-	"github.com/mjn/abacus/internal/db"
 	"github.com/mjn/abacus/internal/graph"
 )
 
@@ -108,7 +107,7 @@ func (m *MatchService) tryExactMatch(stepText string) (*MatchResult, error) {
 	}
 
 	for _, an := range actionNodes {
-		patterns := extractGherkinPatterns(an.Node)
+		patterns := an.Node.GherkinPatterns()
 		if len(patterns) == 0 {
 			continue
 		}
@@ -159,27 +158,4 @@ func (m *MatchService) buildSuggestion(stepText string) (*MatchResult, error) {
 		Tier:       "suggest",
 		Suggestion: suggestion,
 	}, nil
-}
-
-// extractGherkinPatterns extracts gherkin_patterns from a node's properties.
-func extractGherkinPatterns(node db.GraphNode) []string {
-	raw, ok := node.Properties["gherkin_patterns"]
-	if !ok {
-		return nil
-	}
-
-	switch v := raw.(type) {
-	case []any:
-		patterns := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				patterns = append(patterns, s)
-			}
-		}
-		return patterns
-	case []string:
-		return v
-	default:
-		return nil
-	}
 }

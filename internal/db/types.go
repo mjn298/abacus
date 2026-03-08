@@ -1,5 +1,7 @@
 package db
 
+import "strings"
+
 // NodeKind enumerates the types of nodes in the application graph.
 type NodeKind string
 
@@ -54,6 +56,28 @@ type GraphNode struct {
 	ScanHash   *string        `json:"scan_hash"`
 }
 
+// GherkinPatterns extracts gherkin_patterns from the node's properties.
+func (n GraphNode) GherkinPatterns() []string {
+	raw, ok := n.Properties["gherkin_patterns"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []any:
+		patterns := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				patterns = append(patterns, s)
+			}
+		}
+		return patterns
+	case []string:
+		return v
+	default:
+		return nil
+	}
+}
+
 // GraphEdge represents an edge in the application graph.
 type GraphEdge struct {
 	ID            string         `json:"id"`
@@ -63,4 +87,15 @@ type GraphEdge struct {
 	Properties    map[string]any `json:"properties"`
 	SourceScanner *string        `json:"source_scanner,omitempty"`
 	CreatedAt     int64          `json:"created_at"`
+}
+
+// SanitizeFTS5Query wraps input in double quotes to treat it as a literal
+// phrase, neutralizing any FTS5 operators or special syntax. Double quotes
+// within the input are escaped by doubling them.
+func SanitizeFTS5Query(input string) string {
+	if input == "" {
+		return ""
+	}
+	escaped := strings.ReplaceAll(input, `"`, `""`)
+	return `"` + escaped + `"`
 }

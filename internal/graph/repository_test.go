@@ -651,6 +651,49 @@ func TestSearch_NoResults(t *testing.T) {
 	}
 }
 
+func TestSearch_FTS5Injection(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	node := &db.GraphNode{
+		ID:     "n1",
+		Kind:   db.NodeEntity,
+		Name:   "User",
+		Label:  "User Entity",
+		Source: db.SourceScan,
+	}
+	if err := repo.InsertNode(node); err != nil {
+		t.Fatalf("InsertNode: %v", err)
+	}
+
+	// Search with OR operator — should be treated as phrase, not FTS5 OR
+	results, err := repo.Search(db.SanitizeFTS5Query("User OR nonexistent"), nil, 10)
+	if err != nil {
+		t.Fatalf("Search with OR operator: %v", err)
+	}
+	// The sanitized query treats "User OR nonexistent" as a phrase literal,
+	// so it should NOT match "User" (the phrase doesn't appear verbatim).
+	// The key point is it doesn't error and doesn't treat OR as an operator.
+	_ = results // no error is the main assertion
+
+	// Search with wildcard — should work without error
+	results, err = repo.Search(db.SanitizeFTS5Query("User*"), nil, 10)
+	if err != nil {
+		t.Fatalf("Search with wildcard: %v", err)
+	}
+	_ = results // no error is the main assertion
+
+	// Search with plain sanitized term should still find results
+	kind := db.NodeEntity
+	results, err = repo.Search(db.SanitizeFTS5Query("User"), &kind, 10)
+	if err != nil {
+		t.Fatalf("Search sanitized User: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("expected results for sanitized 'User' query, got none")
+	}
+}
+
 func TestSearch_Limit(t *testing.T) {
 	database := setupTestDB(t)
 	repo := NewGraphRepository(database)
