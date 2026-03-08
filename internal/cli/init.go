@@ -133,19 +133,25 @@ func runInit(cmd *cobra.Command, args []string) error {
 }
 
 // resolveScannersPath finds the scanners directory.
-// Checks ABACUS_SCANNERS_PATH env var, then tries to find scanners/
-// relative to the running binary.
+// Probe order: ABACUS_SCANNERS_PATH env var, ~/.abacus/scanners/,
+// then relative to the running binary.
 func resolveScannersPath() string {
 	// 1. Env var override
 	if p := os.Getenv("ABACUS_SCANNERS_PATH"); p != "" {
 		return p
 	}
 
-	// 2. Relative to executable
+	// 2. User-local install: ~/.abacus/scanners/
+	if home, err := os.UserHomeDir(); err == nil {
+		candidate := filepath.Join(home, ".abacus", "scanners")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+
+	// 3. Relative to executable (dev mode — running from repo)
 	if exe, err := os.Executable(); err == nil {
 		exe, _ = filepath.EvalSymlinks(exe)
-		// Binary might be in repo root or ~/go/bin
-		// Check: binary_dir/scanners/ and binary_dir/../scanners/
 		for _, candidate := range []string{
 			filepath.Join(filepath.Dir(exe), "scanners"),
 			filepath.Join(filepath.Dir(exe), "..", "scanners"),

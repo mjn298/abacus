@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-for dir in orpc prisma express react-router; do
+for dir in orpc prisma express react-router linker-ts; do
   echo "==> $dir: installing dependencies"
   (cd "$SCRIPT_DIR/$dir" && npm install --silent)
   echo "==> $dir: building"
