@@ -789,3 +789,174 @@ func TestModuleNodes(t *testing.T) {
 		t.Logf("Final counts: %d modules, %d entities, %d routes", len(modules), len(entities), len(routes))
 	})
 }
+
+// --- Test 7: TestGenesisMCP ---
+
+func TestGenesisMCP(t *testing.T) {
+	moduleFixture := filepath.Join(repoRoot, "testdata", "module-test")
+	dbPath, _ := runScanPipelineForFixture(t, moduleFixture)
+
+	// Create MCP server
+	srv, err := abacusmcp.NewAbacusServer(dbPath, "")
+	if err != nil {
+		t.Fatalf("create MCP server: %v", err)
+	}
+	t.Cleanup(func() { srv.Close() })
+
+	ctx := context.Background()
+	t1, t2 := gomcp.NewInMemoryTransports()
+
+	serverSession, err := srv.Connect(ctx, t1)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	defer serverSession.Close()
+
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "e2e-test", Version: "0.1.0"}, nil)
+	clientSession, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer clientSession.Close()
+
+	t.Run("entity_mode", func(t *testing.T) {
+		// Call abacus.genesis with entity="User"
+		result, err := clientSession.CallTool(ctx, &gomcp.CallToolParams{
+			Name:      "abacus.genesis",
+			Arguments: map[string]any{"entity": "User"},
+		})
+		if err != nil {
+			t.Fatalf("call genesis: %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("genesis returned error: %v", result.Content)
+		}
+
+		text := result.Content[0].(*gomcp.TextContent).Text
+
+		// Parse the GenesisResult
+		var genesis struct {
+			Routes           []struct{ ID, Name, SourceFile string } `json:"routes"`
+			Entities         []struct{ ID, Name, SourceFile string } `json:"entities"`
+			Modules          []struct{ ID, Name, SourceFile string } `json:"modules"`
+			DelegationChains [][]string                              `json:"delegation_chains"`
+		}
+		if err := json.Unmarshal([]byte(text), &genesis); err != nil {
+			t.Fatalf("unmarshal genesis: %v", err)
+		}
+
+		// Verify entities found
+		if len(genesis.Entities) == 0 {
+			t.Error("expected entities in genesis result")
+		}
+		// Verify entity named User exists
+		hasUser := false
+		for _, e := range genesis.Entities {
+			if e.Name == "User" {
+				hasUser = true
+				break
+			}
+		}
+		if !hasUser {
+			t.Error("expected User entity in genesis result")
+		}
+
+		// Verify delegation chains found
+		if len(genesis.DelegationChains) == 0 {
+			t.Error("expected delegation chains in genesis result")
+		}
+
+		// Verify chain structure: first element should be a route, last should be an entity
+		for _, chain := range genesis.DelegationChains {
+			if len(chain) < 2 {
+				t.Errorf("chain too short: %v", chain)
+				continue
+			}
+			if !strings.HasPrefix(chain[0], "route:") {
+				t.Errorf("chain should start with route, got %s", chain[0])
+			}
+			if !strings.HasPrefix(chain[len(chain)-1], "entity:") {
+				t.Errorf("chain should end with entity, got %s", chain[len(chain)-1])
+			}
+		}
+
+		t.Logf("Genesis entity mode: %d routes, %d entities, %d modules, %d chains",
+			len(genesis.Routes), len(genesis.Entities), len(genesis.Modules), len(genesis.DelegationChains))
+	})
+
+	t.Run("node_mode", func(t *testing.T) {
+		// Call with a known entity node ID
+		result, err := clientSession.CallTool(ctx, &gomcp.CallToolParams{
+			Name:      "abacus.genesis",
+			Arguments: map[string]any{"node_id": "entity:User"},
+		})
+		if err != nil {
+			t.Fatalf("call genesis: %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("genesis returned error: %v", result.Content)
+		}
+
+		text := result.Content[0].(*gomcp.TextContent).Text
+		var genesis struct {
+			Routes           []struct{ ID string } `json:"routes"`
+			DelegationChains [][]string             `json:"delegation_chains"`
+		}
+		if err := json.Unmarshal([]byte(text), &genesis); err != nil {
+			t.Fatalf("unmarshal genesis: %v", err)
+		}
+
+		// Should find routes connected to User entity
+		if len(genesis.Routes) == 0 {
+			t.Error("expected routes connected to User entity")
+		}
+		t.Logf("Genesis node mode: %d routes, %d chains", len(genesis.Routes), len(genesis.DelegationChains))
+	})
+
+	t.Run("step_mode_new", func(t *testing.T) {
+		// Step text that won't match any action (no actions exist in the fixture)
+		result, err := clientSession.CallTool(ctx, &gomcp.CallToolParams{
+			Name:      "abacus.genesis",
+			Arguments: map[string]any{"step": "the user creates a notification"},
+		})
+		if err != nil {
+			t.Fatalf("call genesis: %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("genesis returned error: %v", result.Content)
+		}
+
+		text := result.Content[0].(*gomcp.TextContent).Text
+		var genesis struct {
+			Classification string `json:"classification"`
+			MatchTier      string `json:"match_tier"`
+		}
+		if err := json.Unmarshal([]byte(text), &genesis); err != nil {
+			t.Fatalf("unmarshal genesis: %v", err)
+		}
+
+		// Should classify as "suggest" tier (no actions exist)
+		if genesis.MatchTier != "suggest" {
+			t.Errorf("expected match_tier 'suggest', got %q", genesis.MatchTier)
+		}
+		// Classification should be "wirable" or "new" depending on graph content
+		if genesis.Classification != "wirable" && genesis.Classification != "new" {
+			t.Errorf("expected classification 'wirable' or 'new', got %q", genesis.Classification)
+		}
+		t.Logf("Genesis step mode: classification=%s, match_tier=%s", genesis.Classification, genesis.MatchTier)
+	})
+
+	t.Run("invalid_input", func(t *testing.T) {
+		// No input provided — should return IsError result
+		result, err := clientSession.CallTool(ctx, &gomcp.CallToolParams{
+			Name:      "abacus.genesis",
+			Arguments: map[string]any{},
+		})
+		if err != nil {
+			t.Fatalf("unexpected transport error: %v", err)
+		}
+		if !result.IsError {
+			t.Error("expected IsError=true for empty genesis input")
+		}
+	})
+}

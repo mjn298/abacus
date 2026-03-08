@@ -148,6 +148,14 @@ type GraphContextInput struct {
 	EdgeKinds []string `json:"edge_kinds,omitempty" jsonschema:"filter traversal to these edge kinds (e.g. delegates_to, touches_entity)"`
 }
 
+// GenesisToolInput is the MCP tool input for genesis queries.
+type GenesisToolInput struct {
+	Step   string `json:"step,omitempty" jsonschema:"Gherkin step text to classify and resolve"`
+	Entity string `json:"entity,omitempty" jsonschema:"Entity name to show implementation pattern for"`
+	NodeID string `json:"node_id,omitempty" jsonschema:"Node ID to traverse from directly"`
+	Depth  int    `json:"depth,omitempty" jsonschema:"Max traversal depth (default 5)"`
+}
+
 // StatsInput is the MCP tool input for graph statistics (empty).
 type StatsInput struct{}
 
@@ -216,6 +224,11 @@ func (s *AbacusServer) registerTools() {
 		Name:        "abacus.stats",
 		Description: "Get graph statistics including node counts per kind",
 	}, s.statsHandler)
+
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "abacus.genesis",
+		Description: "Resolve a step, entity, or node to its full implementation context with delegation chains and source files",
+	}, s.genesisHandler)
 }
 
 // --- Handlers ---
@@ -410,6 +423,22 @@ func (s *AbacusServer) statsHandler(ctx context.Context, req *gomcp.CallToolRequ
 	}
 
 	return jsonResult(stats)
+}
+
+func (s *AbacusServer) genesisHandler(ctx context.Context, req *gomcp.CallToolRequest, input GenesisToolInput) (*gomcp.CallToolResult, any, error) {
+	adapter := match.NewGenesisAdapter(s.matcher)
+	svc := graph.NewGenesisService(s.repo, adapter)
+
+	result, err := svc.Genesis(graph.GenesisInput{
+		Step:   input.Step,
+		Entity: input.Entity,
+		NodeID: input.NodeID,
+		Depth:  input.Depth,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("genesis: %w", err)
+	}
+	return jsonResult(result)
 }
 
 // jsonResult marshals v as JSON and returns it as a CallToolResult with TextContent.
