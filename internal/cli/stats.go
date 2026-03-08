@@ -11,7 +11,12 @@ import (
 var statsCmd = &cobra.Command{
 	Use:   "stats",
 	Short: "Show graph statistics",
-	RunE:  statsRunE,
+	Long: `Display node counts grouped by kind (route, entity, page, action, permission).
+
+Provides a quick overview of graph population after scanning.`,
+	Example: `  $ abacus stats
+  $ abacus stats --json`,
+	RunE: statsRunE,
 }
 
 func init() {

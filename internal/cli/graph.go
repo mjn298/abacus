@@ -11,8 +11,15 @@ import (
 var graphCmd = &cobra.Command{
 	Use:   "graph <node-id>",
 	Short: "Show the connected subgraph around a node",
-	Args:  cobra.ExactArgs(1),
-	RunE:  graphRunE,
+	Long: `Perform a bidirectional BFS traversal from a node and display the connected subgraph.
+
+Returns all nodes and edges reachable within the specified depth. Use --depth to
+control how far the traversal extends from the starting node.`,
+	Example: `  $ abacus graph "route:GET-/api/users"
+  $ abacus graph "entity:User" --depth 3
+  $ abacus graph "action:create-user" --depth 1 --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: graphRunE,
 }
 
 func init() {

@@ -17,8 +17,16 @@ import (
 var matchCmd = &cobra.Command{
 	Use:   "match [step-text]",
 	Short: "Match a Gherkin step to an Action",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  matchRunE,
+	Long: `Match a Gherkin step to an existing action using tiered resolution: exact match via cucumber expressions, fuzzy match by text similarity, or suggest a new action.
+
+Use --file to match all steps in a feature file at once. Use --create to
+automatically create actions from suggestions.`,
+	Example: `  $ abacus match "the user creates an account"
+  $ abacus match --file features/login.feature
+  $ abacus match "the admin deletes a user" --create
+  $ abacus match --file features/login.feature --create --json`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: matchRunE,
 }
 
 func init() {

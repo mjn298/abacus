@@ -18,8 +18,14 @@ var initDir string
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize Abacus for the current project",
-	Long:  "Creates the .abacus/ directory, generates a config file with auto-detected project settings, and initializes the SQLite database.",
-	RunE:  runInit,
+	Long: `Creates the .abacus/ directory, generates a config file with auto-detected project settings, and initializes the SQLite database.
+
+Project type and scanners are detected automatically from package.json, go.mod,
+and other project files. Use --force to re-run detection on an existing project.`,
+	Example: `  $ abacus init
+  $ abacus init --dir ./my-project
+  $ abacus init --force`,
+	RunE: runInit,
 }
 
 var initForce bool

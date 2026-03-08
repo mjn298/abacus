@@ -14,6 +14,8 @@ func queryNodesCmd(kind db.NodeKind, use, short string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
+		Long:  fmt.Sprintf("List all %s nodes in the graph, optionally filtering by FTS5 search query.\n\nResults include node ID, name, label, and source file. Use --json for\nmachine-readable output.", kind),
+		Example: fmt.Sprintf("  $ abacus %s\n  $ abacus %s --match users\n  $ abacus %s --limit 10 --json", use, use, use),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			jsonFlag, _ := cmd.Flags().GetBool("json")

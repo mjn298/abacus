@@ -15,8 +15,15 @@ import (
 var coverageCmd = &cobra.Command{
 	Use:   "coverage [glob]",
 	Short: "Show Gherkin step coverage report",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  coverageRunE,
+	Long: `Analyze feature files and report what percentage of Gherkin steps have matching actions.
+
+Scans all .feature files matching the glob pattern (default **/*.feature) and
+classifies each step as exact match, fuzzy match, or suggestion.`,
+	Example: `  $ abacus coverage
+  $ abacus coverage "features/*.feature"
+  $ abacus coverage "tests/**/*.feature" --json`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: coverageRunE,
 }
 
 func init() {

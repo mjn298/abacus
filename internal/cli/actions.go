@@ -11,14 +11,28 @@ import (
 var actionsCmd = &cobra.Command{
 	Use:   "actions",
 	Short: "List or search action nodes",
-	RunE:  actionsRunE,
+	Long: `List all action nodes in the graph with their linked route, entity, and page counts.
+
+Use --match to search actions by name or label via FTS5. Results show how many
+graph nodes of each kind are connected to each action.`,
+	Example: `  $ abacus actions
+  $ abacus actions --match "create user"
+  $ abacus actions --limit 20 --json`,
+	RunE: actionsRunE,
 }
 
 var actionsCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new action node",
-	Args:  cobra.ExactArgs(1),
-	RunE:  actionsCreateRunE,
+	Long: `Create a new action node with optional Gherkin cucumber expression patterns and graph references.
+
+Actions bridge Gherkin steps to implementation by linking routes, entities, and
+pages. Gherkin patterns use cucumber expression syntax for step matching.`,
+	Example: `  $ abacus actions create "create-user" --label "Create a new user"
+  $ abacus actions create "login" --gherkin "the user logs in" --route-ref "route:POST-/auth/login"
+  $ abacus actions create "view-profile" --route-ref "route:GET-/api/users/{id}" --entity-ref "entity:User" --page-ref "page:/profile"`,
+	Args: cobra.ExactArgs(1),
+	RunE: actionsCreateRunE,
 }
 
 func init() {

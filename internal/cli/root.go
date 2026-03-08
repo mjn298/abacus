@@ -20,7 +20,16 @@ var rootCmd = &cobra.Command{
 	Use:   "abacus",
 	Short: "Living application graph for Gherkin-driven BDD",
 	Long:  "Abacus models your application's API surface, entities, pages, and user actions. It bridges Gherkin specs to implementation through a persistent, cumulative graph.",
+	Example: `  $ abacus init
+  $ abacus scan
+  $ abacus routes --match users
+  $ abacus match "the user creates an account"`,
 	Version: Version,
+}
+
+// RootCmd returns the root command for documentation generation.
+func RootCmd() *cobra.Command {
+	return rootCmd
 }
 
 func Execute() error {

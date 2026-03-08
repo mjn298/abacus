@@ -18,9 +18,16 @@ import (
 var scanCmd = &cobra.Command{
 	Use:   "scan [type]",
 	Short: "Run scanners and ingest results into the graph",
-	Long:  "Runs all configured scanners (or a specific one by ID) and ingests discovered nodes and edges into the graph database.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runScan,
+	Long: `Runs all configured scanners (or a specific one by ID) and ingests discovered nodes and edges into the graph database.
+
+Scanners run in two phases: scan-phase discovers nodes, then link-phase resolves
+cross-references between them. Results are upserted so repeated scans are safe.`,
+	Example: `  $ abacus scan
+  $ abacus scan express
+  $ abacus scan prisma --json
+  $ abacus scan --verbose`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runScan,
 }
 
 func init() {
