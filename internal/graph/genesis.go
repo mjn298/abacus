@@ -58,6 +58,13 @@ type StepMatcher interface {
 	MatchForGenesis(stepText string) (*StepMatchResult, error)
 }
 
+// maxGenesisDepth is the maximum traversal depth allowed for genesis queries.
+// Silently clamped, not rejected — consistent with DoS prevention pattern.
+const maxGenesisDepth = 10
+
+// maxChainLength caps delegation chain length to prevent pathological DFS.
+const maxChainLength = 20
+
 // GenesisService composes match, graph traversal, and categorization.
 type GenesisService struct {
 	repo    *GraphRepository
@@ -90,9 +97,12 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 		return nil, fmt.Errorf("genesis: only one of Step, Entity, or NodeID may be provided")
 	}
 
-	// Default depth.
+	// Default and cap depth.
 	if input.Depth <= 0 {
 		input.Depth = 5
+	}
+	if input.Depth > maxGenesisDepth {
+		input.Depth = maxGenesisDepth
 	}
 
 	result := &GenesisResult{}
@@ -259,6 +269,10 @@ func ExtractDelegationChains(nodes []db.GraphNode, edges []db.GraphEdge) [][]str
 // collect delegation chains. A chain is emitted when a touches_entity edge
 // is followed to a terminal entity node.
 func dfsChains(current string, path []string, visited map[string]bool, adj map[string][]edgeTarget, chains *[][]string) {
+	if len(path) >= maxChainLength {
+		return
+	}
+
 	for _, target := range adj[current] {
 		if visited[target.dstID] {
 			continue
@@ -267,8 +281,12 @@ func dfsChains(current string, path []string, visited map[string]bool, adj map[s
 		switch target.kind {
 		case db.EdgeDelegatesTo:
 			// Continue traversal through delegation.
+			// Explicit copy avoids append aliasing across sibling iterations.
+			newPath := make([]string, len(path)+1)
+			copy(newPath, path)
+			newPath[len(path)] = target.dstID
 			visited[target.dstID] = true
-			dfsChains(target.dstID, append(path, target.dstID), visited, adj, chains)
+			dfsChains(target.dstID, newPath, visited, adj, chains)
 			visited[target.dstID] = false
 
 		case db.EdgeTouchesEntity:

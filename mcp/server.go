@@ -23,6 +23,7 @@ type AbacusServer struct {
 	repo      *graph.GraphRepository
 	actions   *graph.ActionService
 	matcher   *match.MatchService
+	genesis   *graph.GenesisService
 	runner    *scanner.Runner
 	cfg       *config.Config
 	db        *sql.DB
@@ -44,6 +45,8 @@ func NewAbacusServer(dbPath, configPath string) (*AbacusServer, error) {
 	repo := graph.NewGraphRepository(database)
 	actions := graph.NewActionService(repo)
 	matcher := match.NewMatchService(repo, actions, match.MatchOptions{})
+	adapter := match.NewGenesisAdapter(matcher)
+	genesis := graph.NewGenesisService(repo, adapter)
 	runner := scanner.NewRunner(60 * time.Second)
 
 	var cfg *config.Config
@@ -60,6 +63,7 @@ func NewAbacusServer(dbPath, configPath string) (*AbacusServer, error) {
 		repo:    repo,
 		actions: actions,
 		matcher: matcher,
+		genesis: genesis,
 		runner:  runner,
 		cfg:     cfg,
 		db:      database,
@@ -426,10 +430,7 @@ func (s *AbacusServer) statsHandler(ctx context.Context, req *gomcp.CallToolRequ
 }
 
 func (s *AbacusServer) genesisHandler(ctx context.Context, req *gomcp.CallToolRequest, input GenesisToolInput) (*gomcp.CallToolResult, any, error) {
-	adapter := match.NewGenesisAdapter(s.matcher)
-	svc := graph.NewGenesisService(s.repo, adapter)
-
-	result, err := svc.Genesis(graph.GenesisInput{
+	result, err := s.genesis.Genesis(graph.GenesisInput{
 		Step:   input.Step,
 		Entity: input.Entity,
 		NodeID: input.NodeID,
