@@ -8,7 +8,6 @@
 {"key":"compact_tier2_dep_levels","value":"5"}
 {"key":"compaction_enabled","value":"false"}
 {"key":"issue_prefix","value":"aba"}
-{"key":"kv.active_handoff","value":"aba-msf"}
 {"key":"kv.memory.decision-abacus-is-a-greenfield-project-with-no","value":"DECISION: Abacus is a greenfield project with no users. Always choose the best design over backward compatibility. No need for deprecated params, shims, or migration paths — just make the best API. This applies to Go function signatures, CLI flags, scanner protocols, and schema evolution."}
 {"key":"kv.memory.fact-abacus-edge-ingestion-uses-insert-or-replace","value":"FACT: Abacus edge ingestion uses INSERT OR REPLACE (upsert) so re-scanning is idempotent. Both BulkUpsertNodes and InsertEdge now upsert. CLI query default limit is 1000 (was 50). React Router scanner auto-detects route files via (1) hardcoded common locations including App.tsx/MainApp.tsx, (2) glob fallback searching tsx/jsx files for \u003cRoute content. All scanners have within-file dedup via Set+counter (#N suffix)."}
 {"key":"kv.memory.fact-abacus-project-uses-go-mod-module-path","value":"FACT: Abacus project uses go.mod module path github.com/mjn/abacus. Cobra CLI with Version injected via ldflags. Config loaded from .abacus/config.yaml with YAML v3. Makefile targets: build, install, test, lint, clean."}
