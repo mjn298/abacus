@@ -29,6 +29,29 @@ func TestSanitizeFTS5Query(t *testing.T) {
 	}
 }
 
+func TestSanitizeFTS5ColumnQuery(t *testing.T) {
+	tests := []struct {
+		name   string
+		column string
+		input  string
+		want   string
+	}{
+		{name: "name column", column: "name", input: "User", want: `name:"User"`},
+		{name: "label column", column: "label", input: "Dashboard", want: `label:"Dashboard"`},
+		{name: "with spaces", column: "name", input: "User Account", want: `name:"User Account"`},
+		{name: "empty input", column: "name", input: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SanitizeFTS5ColumnQuery(tt.column, tt.input)
+			if got != tt.want {
+				t.Errorf("SanitizeFTS5ColumnQuery(%q, %q) = %q, want %q", tt.column, tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGraphNode_GherkinPatterns(t *testing.T) {
 	tests := []struct {
 		name       string

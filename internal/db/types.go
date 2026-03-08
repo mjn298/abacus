@@ -99,3 +99,13 @@ func SanitizeFTS5Query(input string) string {
 	escaped := strings.ReplaceAll(input, `"`, `""`)
 	return `"` + escaped + `"`
 }
+
+// SanitizeFTS5ColumnQuery scopes an FTS5 query to a specific column.
+// This prevents matches in other indexed columns (e.g., properties JSON)
+// from outranking exact name matches.
+func SanitizeFTS5ColumnQuery(column, input string) string {
+	if input == "" {
+		return ""
+	}
+	return column + ":" + SanitizeFTS5Query(input)
+}

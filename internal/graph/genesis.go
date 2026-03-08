@@ -154,7 +154,7 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 
 	case input.Entity != "":
 		kind := db.NodeEntity
-		results, err := s.repo.Search(db.SanitizeFTS5Query(input.Entity), &kind, 10)
+		results, err := s.repo.Search(db.SanitizeFTS5ColumnQuery("name", input.Entity), &kind, 10)
 		if err != nil {
 			return nil, fmt.Errorf("genesis entity search: %w", err)
 		}
