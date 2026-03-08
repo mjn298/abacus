@@ -173,14 +173,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Ingesting %d edges...", len(merged.Edges))
 	}
 	graphEdges := scanner.ToGraphEdges(merged.Edges)
-	edgesCreated := 0
 	var warnings []string
-	for _, edge := range graphEdges {
-		if err := repo.InsertEdge(&edge); err != nil {
-			warnings = append(warnings, fmt.Sprintf("edge %s: %v", edge.ID, err))
-		} else {
-			edgesCreated++
-		}
+	edgesCreated, err := repo.BulkUpsertEdges(graphEdges)
+	if err != nil {
+		return fmt.Errorf("ingesting scan-phase edges: %w", err)
 	}
 	if showProgress {
 		fmt.Fprintf(os.Stderr, " done (%d created, %d warnings)\n", edgesCreated, len(warnings))
@@ -256,6 +252,15 @@ func runScan(cmd *cobra.Command, args []string) error {
 			merged.Stats.TotalEdgesFound += out.Stats.EdgesFound
 			merged.Stats.TotalErrors += out.Stats.Errors
 			merged.Stats.ScannerCount++
+
+			// Ingest linker nodes (e.g. module nodes) before edges to satisfy FK constraints
+			if len(out.Nodes) > 0 {
+				linkNodes := scanner.ToGraphNodes(out.Nodes)
+				if _, err := repo.BulkUpsertNodes(linkNodes); err != nil {
+					return fmt.Errorf("ingesting linker nodes for %s: %w", id, err)
+				}
+				merged.Stats.TotalNodesFound += out.Stats.NodesFound
+			}
 
 			if _, err := repo.DeleteEdgesBySourceScanner(id); err != nil {
 				return fmt.Errorf("deleting stale edges for scanner %s: %w", id, err)

@@ -7,6 +7,7 @@ import { hasPrismaImport, findPrismaAccesses } from "../src/matcher.js";
 import { traceImports } from "../src/tracer.js";
 import { findHandlerFiles } from "../src/parser.js";
 import { processRoutes } from "../src/parser.js";
+import type { ScanNode, ScanEdge } from "../src/types.js";
 
 // Shared entity map for tests: lowercase model name -> entity node ID
 const entityByName = new Map<string, string>([
@@ -785,6 +786,232 @@ export function handler() { return prisma.user.findMany(); }`,
       expect(result.edges[0].dstId).toBe("entity:User");
       // No resolvedVia property — this was a direct trace
       expect(result.edges[0].properties?.resolvedVia).toBeUndefined();
+    });
+
+    it("emits module nodes and delegates_to chain alongside touches_entity", () => {
+      tmpDir = mkdtempSync(join(tmpdir(), "linker-modules-"));
+
+      mkdirSync(join(tmpDir, "src", "routes"), { recursive: true });
+      mkdirSync(join(tmpDir, "src", "services"), { recursive: true });
+      mkdirSync(join(tmpDir, "src", "repos"), { recursive: true });
+
+      // Route handler imports service
+      writeFileSync(
+        join(tmpDir, "src", "routes", "users.ts"),
+        `import { getUsers } from "../services/user.service";
+export function handler() { return getUsers(); }`,
+      );
+
+      // Service imports repo
+      writeFileSync(
+        join(tmpDir, "src", "services", "user.service.ts"),
+        `import { findUsers } from "../repos/user.repo";
+export function getUsers() { return findUsers(); }`,
+      );
+
+      // Repo uses Prisma
+      writeFileSync(
+        join(tmpDir, "src", "repos", "user.repo.ts"),
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export function findUsers() { return prisma.user.findMany(); }`,
+      );
+
+      writeFileSync(
+        join(tmpDir, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: { module: "ESNext", moduleResolution: "Node16", target: "ESNext", esModuleInterop: true, noEmit: true },
+          include: ["src/**/*.ts"],
+        }),
+      );
+
+      const routeNodes = new Map([
+        ["route:POST-users", { id: "route:POST-users", name: "POST /users", sourceFile: "src/routes/users.ts", kind: "route" as const }],
+      ]);
+      const testEntityByName = new Map<string, string>([["user", "entity:User"]]);
+
+      const result = processRoutes(routeNodes, testEntityByName, tmpDir);
+
+      // Module nodes: service and repo (NOT the route handler — tracePath[0] is skipped)
+      const moduleNodes = result.nodes.filter((n: ScanNode) => n.kind === "module");
+      const moduleIds = moduleNodes.map((n: ScanNode) => n.id).sort();
+      expect(moduleIds).toContain("module:src/services/user.service");
+      expect(moduleIds).toContain("module:src/repos/user.repo");
+      expect(moduleIds.length).toBe(2);
+
+      // delegates_to edges form the chain
+      const delegatesEdges = result.edges.filter((e: ScanEdge) => e.kind === "delegates_to");
+      expect(delegatesEdges.length).toBe(2);
+
+      // route -> service
+      expect(delegatesEdges).toContainEqual(
+        expect.objectContaining({ srcId: "route:POST-users", dstId: "module:src/services/user.service", kind: "delegates_to" }),
+      );
+      // service -> repo
+      expect(delegatesEdges).toContainEqual(
+        expect.objectContaining({ srcId: "module:src/services/user.service", dstId: "module:src/repos/user.repo", kind: "delegates_to" }),
+      );
+
+      // Last module -> entity uses touches_entity (not delegates_to)
+      const moduleTouchesEdges = result.edges.filter(
+        (e: ScanEdge) => e.kind === "touches_entity" && e.srcId.startsWith("module:"),
+      );
+      expect(moduleTouchesEdges.length).toBe(1);
+      expect(moduleTouchesEdges[0].srcId).toBe("module:src/repos/user.repo");
+      expect(moduleTouchesEdges[0].dstId).toBe("entity:User");
+
+      // Summary touches_entity edge: route -> entity (backward compat)
+      const summaryEdges = result.edges.filter(
+        (e: ScanEdge) => e.kind === "touches_entity" && e.srcId === "route:POST-users",
+      );
+      expect(summaryEdges.length).toBe(1);
+      expect(summaryEdges[0].dstId).toBe("entity:User");
+    });
+
+    it("skips index files in tracePath", () => {
+      tmpDir = mkdtempSync(join(tmpdir(), "linker-modules-idx-"));
+
+      mkdirSync(join(tmpDir, "src", "routes"), { recursive: true });
+      mkdirSync(join(tmpDir, "src", "services"), { recursive: true });
+      mkdirSync(join(tmpDir, "src", "repos"), { recursive: true });
+
+      // Route handler imports a service index file (which re-exports)
+      // and also imports directly from repo
+      writeFileSync(
+        join(tmpDir, "src", "routes", "users.ts"),
+        `import { getUsers } from "../services/index";
+import { findUsers } from "../repos/user.repo";
+export function handler() { return getUsers(); }`,
+      );
+
+      // Index file that uses Prisma (so it produces an entity hit with tracePath including index.ts)
+      writeFileSync(
+        join(tmpDir, "src", "services", "index.ts"),
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export function getUsers() { return prisma.user.findMany(); }`,
+      );
+
+      // Repo also uses Prisma for a different entity
+      writeFileSync(
+        join(tmpDir, "src", "repos", "user.repo.ts"),
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export function findUsers() { return prisma.post.findMany(); }`,
+      );
+
+      const routeNodes = new Map([
+        ["route:GET-users", { id: "route:GET-users", name: "GET /users", sourceFile: "src/routes/users.ts", kind: "route" as const }],
+      ]);
+      const testEntityByName = new Map<string, string>([
+        ["user", "entity:User"],
+        ["post", "entity:Post"],
+      ]);
+
+      const result = processRoutes(routeNodes, testEntityByName, tmpDir);
+
+      // index.ts should NOT appear as a module node (even though it's in tracePath)
+      const moduleIds = result.nodes.filter((n: ScanNode) => n.kind === "module").map((n: ScanNode) => n.id);
+      expect(moduleIds).not.toContain("module:src/services/index");
+      // repo should appear as a module
+      expect(moduleIds).toContain("module:src/repos/user.repo");
+    });
+
+    it("deduplicates module nodes across multiple routes", () => {
+      tmpDir = mkdtempSync(join(tmpdir(), "linker-modules-dedup-"));
+
+      mkdirSync(join(tmpDir, "src", "routes"), { recursive: true });
+      mkdirSync(join(tmpDir, "src", "services"), { recursive: true });
+
+      // Shared service
+      writeFileSync(
+        join(tmpDir, "src", "services", "user.service.ts"),
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export function getUsers() { return prisma.user.findMany(); }`,
+      );
+
+      // Two routes both import the same service
+      writeFileSync(
+        join(tmpDir, "src", "routes", "list-users.ts"),
+        `import { getUsers } from "../services/user.service";
+export function handler() { return getUsers(); }`,
+      );
+
+      writeFileSync(
+        join(tmpDir, "src", "routes", "admin-users.ts"),
+        `import { getUsers } from "../services/user.service";
+export function handler() { return getUsers(); }`,
+      );
+
+      writeFileSync(
+        join(tmpDir, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: { module: "ESNext", moduleResolution: "Node16", target: "ESNext", esModuleInterop: true, noEmit: true },
+          include: ["src/**/*.ts"],
+        }),
+      );
+
+      const routeNodes = new Map([
+        ["route:GET-users", { id: "route:GET-users", name: "GET /users", sourceFile: "src/routes/list-users.ts", kind: "route" as const }],
+        ["route:GET-admin-users", { id: "route:GET-admin-users", name: "GET /admin/users", sourceFile: "src/routes/admin-users.ts", kind: "route" as const }],
+      ]);
+      const testEntityByName = new Map<string, string>([["user", "entity:User"]]);
+
+      const result = processRoutes(routeNodes, testEntityByName, tmpDir);
+
+      // The shared service module should appear only once
+      const moduleNodes = result.nodes.filter((n: ScanNode) => n.kind === "module");
+      const serviceModules = moduleNodes.filter((n: ScanNode) => n.id === "module:src/services/user.service");
+      expect(serviceModules.length).toBe(1);
+    });
+
+    it("respects ignorePaths for module nodes", () => {
+      tmpDir = mkdtempSync(join(tmpdir(), "linker-modules-ignore-"));
+
+      mkdirSync(join(tmpDir, "src", "routes"), { recursive: true });
+      mkdirSync(join(tmpDir, "src", "services"), { recursive: true });
+      mkdirSync(join(tmpDir, "src", "generated"), { recursive: true });
+
+      writeFileSync(
+        join(tmpDir, "src", "routes", "users.ts"),
+        `import { getUsers } from "../services/user.service";
+export function handler() { return getUsers(); }`,
+      );
+
+      writeFileSync(
+        join(tmpDir, "src", "services", "user.service.ts"),
+        `import { findUsers } from "../generated/client";
+export function getUsers() { return findUsers(); }`,
+      );
+
+      writeFileSync(
+        join(tmpDir, "src", "generated", "client.ts"),
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export function findUsers() { return prisma.user.findMany(); }`,
+      );
+
+      writeFileSync(
+        join(tmpDir, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: { module: "ESNext", moduleResolution: "Node16", target: "ESNext", esModuleInterop: true, noEmit: true },
+          include: ["src/**/*.ts"],
+        }),
+      );
+
+      const routeNodes = new Map([
+        ["route:GET-users", { id: "route:GET-users", name: "GET /users", sourceFile: "src/routes/users.ts", kind: "route" as const }],
+      ]);
+      const testEntityByName = new Map<string, string>([["user", "entity:User"]]);
+
+      const result = processRoutes(routeNodes, testEntityByName, tmpDir, {}, ["src/generated"]);
+
+      // generated/client should NOT appear as module node
+      const moduleIds = result.nodes.filter((n: ScanNode) => n.kind === "module").map((n: ScanNode) => n.id);
+      expect(moduleIds).not.toContain("module:src/generated/client");
+      // service should still appear
+      expect(moduleIds).toContain("module:src/services/user.service");
     });
 
     it("traces through multiple handler files found via reverse resolution", () => {

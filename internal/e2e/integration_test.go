@@ -101,10 +101,17 @@ func scannerCommand(id string) string {
 	return fmt.Sprintf("node %s", filepath.Join(scannerRoot, id, "dist", "index.js"))
 }
 
-// runScanPipeline runs all 5 scanners against testdata/e2e-project in two phases
-// (scan-phase → ingest → link-phase with ExistingNodes), replicating cli/scan.go.
-// Returns the DB path and populated repository. Database is closed via t.Cleanup.
+// runScanPipeline runs all scanners against testdata/e2e-project.
+// Convenience wrapper around runScanPipelineForFixture.
 func runScanPipeline(t *testing.T) (string, *graph.GraphRepository) {
+	t.Helper()
+	return runScanPipelineForFixture(t, fixtureRoot)
+}
+
+// runScanPipelineForFixture runs all scanners against the given fixture directory
+// in two phases (scan-phase → ingest → link-phase with ExistingNodes), replicating cli/scan.go.
+// Returns the DB path and populated repository. Database is closed via t.Cleanup.
+func runScanPipelineForFixture(t *testing.T, fixturePath string) (string, *graph.GraphRepository) {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "abacus.db")
@@ -128,7 +135,7 @@ func runScanPipeline(t *testing.T) (string, *graph.GraphRepository) {
 	for _, id := range scanPhase {
 		input := scanner.ScanInput{
 			Version:     1,
-			ProjectRoot: fixtureRoot,
+			ProjectRoot: fixturePath,
 			Options:     map[string]any{},
 			IgnorePaths: []string{"node_modules", "dist", "build", ".git"},
 		}
@@ -185,7 +192,7 @@ func runScanPipeline(t *testing.T) (string, *graph.GraphRepository) {
 	for _, id := range linkPhase {
 		input := scanner.ScanInput{
 			Version:       1,
-			ProjectRoot:   fixtureRoot,
+			ProjectRoot:   fixturePath,
 			Options:       map[string]any{},
 			IgnorePaths:   []string{"node_modules", "dist", "build", ".git"},
 			ExistingNodes: existingNodes,
@@ -194,6 +201,15 @@ func runScanPipeline(t *testing.T) (string, *graph.GraphRepository) {
 		out, err := linkRunner.RunScanner(ctx, scannerCommand(id), input, knownNodeIDs)
 		if err != nil {
 			t.Fatalf("link-phase scanner %s failed: %v", id, err)
+		}
+
+		// Ingest linker nodes (e.g. module nodes) before edges to satisfy FK constraints
+		if len(out.Nodes) > 0 {
+			linkNodes := scanner.ToGraphNodes(out.Nodes)
+			if _, err := repo.BulkUpsertNodes(linkNodes); err != nil {
+				t.Fatalf("ingest linker nodes for %s: %v", id, err)
+			}
+			t.Logf("Linker %s: %d nodes", id, len(out.Nodes))
 		}
 
 		// Delete stale edges by source scanner, then bulk upsert
@@ -258,7 +274,7 @@ func TestScanPipeline(t *testing.T) {
 		hasTouchesEntity := false
 
 		for _, entity := range entities {
-			sg, err := repo.GetConnected(entity.ID, 2)
+			sg, err := repo.GetConnected(entity.ID, 2, nil)
 			if err != nil {
 				t.Fatalf("get connected for %s: %v", entity.ID, err)
 			}
@@ -378,7 +394,7 @@ func TestCrossScannerEdgeTraversal(t *testing.T) {
 	}
 
 	// GetConnected from entity → verify edges to route nodes from different scanners
-	sg, err := repo.GetConnected(userEntityID, 2)
+	sg, err := repo.GetConnected(userEntityID, 2, nil)
 	if err != nil {
 		t.Fatalf("get connected from %s: %v", userEntityID, err)
 	}
@@ -523,4 +539,253 @@ func TestMCPTools(t *testing.T) {
 		t.Errorf("expected ≥3 pages in stats, got %d", stats["page"])
 	}
 	t.Logf("MCP stats: %v", stats)
+}
+
+// --- Test 6: TestModuleNodes ---
+
+func TestModuleNodes(t *testing.T) {
+	moduleFixture := filepath.Join(repoRoot, "testdata", "module-test")
+	_, repo := runScanPipelineForFixture(t, moduleFixture)
+
+	t.Run("module_node_counts", func(t *testing.T) {
+		modules, err := repo.GetNodesByKind(db.NodeModule, 1000, 0)
+		if err != nil {
+			t.Fatalf("query modules: %v", err)
+		}
+
+		// Log each module for debugging
+		for _, m := range modules {
+			t.Logf("Module: id=%s name=%s", m.ID, m.Name)
+		}
+
+		// Expect exactly 4 modules: user.service, user.repository, order.service, order.repository
+		if len(modules) != 4 {
+			t.Errorf("expected exactly 4 module nodes, got %d", len(modules))
+		}
+
+		// Verify no module has "index" in its name (barrel file should be skipped)
+		for _, m := range modules {
+			if strings.Contains(strings.ToLower(m.Name), "index") {
+				t.Errorf("unexpected barrel-file module node: %s (name=%s)", m.ID, m.Name)
+			}
+		}
+	})
+
+	t.Run("delegates_to_edges", func(t *testing.T) {
+		routes, err := repo.GetNodesByKind(db.NodeRoute, 1000, 0)
+		if err != nil {
+			t.Fatalf("query routes: %v", err)
+		}
+		if len(routes) == 0 {
+			t.Fatal("no route nodes found")
+		}
+
+		// Find a route node (POST /users or similar)
+		var routeID string
+		for _, r := range routes {
+			if strings.Contains(r.Name, "/users") {
+				routeID = r.ID
+				break
+			}
+		}
+		if routeID == "" {
+			routeID = routes[0].ID
+			t.Logf("no /users route found, using first route: %s", routes[0].Name)
+		}
+
+		sg, err := repo.GetConnected(routeID, 3, []db.EdgeKind{db.EdgeDelegatesTo})
+		if err != nil {
+			t.Fatalf("GetConnected from %s: %v", routeID, err)
+		}
+
+		// Verify subgraph contains module nodes
+		hasModule := false
+		for _, n := range sg.Nodes {
+			if n.Kind == db.NodeModule {
+				hasModule = true
+				break
+			}
+		}
+		if !hasModule {
+			t.Error("expected module nodes in delegates_to subgraph from route")
+		}
+
+		// Verify edges have kind delegates_to
+		hasDelegatesTo := false
+		for _, e := range sg.Edges {
+			if e.Kind == db.EdgeDelegatesTo {
+				hasDelegatesTo = true
+				break
+			}
+		}
+		if !hasDelegatesTo {
+			t.Error("expected delegates_to edges in subgraph")
+		}
+
+		t.Logf("delegates_to subgraph from route: %d nodes, %d edges", len(sg.Nodes), len(sg.Edges))
+	})
+
+	t.Run("summary_touches_entity_edges", func(t *testing.T) {
+		routes, err := repo.GetNodesByKind(db.NodeRoute, 1000, 0)
+		if err != nil {
+			t.Fatalf("query routes: %v", err)
+		}
+		if len(routes) == 0 {
+			t.Fatal("no route nodes found")
+		}
+
+		// Use the first route
+		routeID := routes[0].ID
+
+		sg, err := repo.GetConnected(routeID, 1, nil)
+		if err != nil {
+			t.Fatalf("GetConnected from %s: %v", routeID, err)
+		}
+
+		// Verify it reaches entity nodes via summary touches_entity edge
+		hasEntity := false
+		for _, n := range sg.Nodes {
+			if n.Kind == db.NodeEntity {
+				hasEntity = true
+				break
+			}
+		}
+		if !hasEntity {
+			t.Error("expected entity nodes reachable at depth=1 via touches_entity shortcut")
+		}
+
+		hasTouchesEntity := false
+		for _, e := range sg.Edges {
+			if e.Kind == db.EdgeTouchesEntity {
+				hasTouchesEntity = true
+				break
+			}
+		}
+		if !hasTouchesEntity {
+			t.Error("expected touches_entity edge at depth=1 from route")
+		}
+
+		t.Logf("depth=1 subgraph: %d nodes, %d edges", len(sg.Nodes), len(sg.Edges))
+	})
+
+	t.Run("full_chain_traversal", func(t *testing.T) {
+		routes, err := repo.GetNodesByKind(db.NodeRoute, 1000, 0)
+		if err != nil {
+			t.Fatalf("query routes: %v", err)
+		}
+		if len(routes) == 0 {
+			t.Fatal("no route nodes found")
+		}
+
+		routeID := routes[0].ID
+		sg, err := repo.GetConnected(routeID, 4, []db.EdgeKind{db.EdgeDelegatesTo, db.EdgeTouchesEntity})
+		if err != nil {
+			t.Fatalf("GetConnected from %s: %v", routeID, err)
+		}
+
+		// Verify chain: route → service module → repo module → entity
+		hasModule := false
+		hasEntity := false
+		for _, n := range sg.Nodes {
+			switch n.Kind {
+			case db.NodeModule:
+				hasModule = true
+			case db.NodeEntity:
+				hasEntity = true
+			}
+		}
+		if !hasModule {
+			t.Error("expected module nodes in full chain traversal")
+		}
+		if !hasEntity {
+			t.Error("expected entity nodes in full chain traversal")
+		}
+
+		// Verify both edge kinds present
+		hasDelegatesTo := false
+		hasTouchesEntity := false
+		for _, e := range sg.Edges {
+			switch e.Kind {
+			case db.EdgeDelegatesTo:
+				hasDelegatesTo = true
+			case db.EdgeTouchesEntity:
+				hasTouchesEntity = true
+			}
+		}
+		if !hasDelegatesTo {
+			t.Error("expected delegates_to edges in full chain")
+		}
+		if !hasTouchesEntity {
+			t.Error("expected touches_entity edges in full chain")
+		}
+
+		t.Logf("full chain subgraph: %d nodes, %d edges", len(sg.Nodes), len(sg.Edges))
+	})
+
+	t.Run("edge_kind_filter", func(t *testing.T) {
+		routes, err := repo.GetNodesByKind(db.NodeRoute, 1000, 0)
+		if err != nil {
+			t.Fatalf("query routes: %v", err)
+		}
+		if len(routes) == 0 {
+			t.Fatal("no route nodes found")
+		}
+
+		routeID := routes[0].ID
+		sg, err := repo.GetConnected(routeID, 3, []db.EdgeKind{db.EdgeDelegatesTo})
+		if err != nil {
+			t.Fatalf("GetConnected from %s: %v", routeID, err)
+		}
+
+		// With delegates_to filter only, should NOT reach entity nodes
+		for _, n := range sg.Nodes {
+			if n.Kind == db.NodeEntity {
+				t.Errorf("unexpected entity node %s in delegates_to-only traversal", n.Name)
+			}
+		}
+
+		// Should have module nodes
+		hasModule := false
+		for _, n := range sg.Nodes {
+			if n.Kind == db.NodeModule {
+				hasModule = true
+				break
+			}
+		}
+		if !hasModule {
+			t.Error("expected module nodes in delegates_to-only traversal")
+		}
+
+		t.Logf("delegates_to-only subgraph: %d nodes, %d edges", len(sg.Nodes), len(sg.Edges))
+	})
+
+	t.Run("rescan_idempotent", func(t *testing.T) {
+		// Verify counts are stable after the single run (upsert idempotency
+		// is covered by unit tests; here we just confirm consistency)
+		modules, err := repo.GetNodesByKind(db.NodeModule, 1000, 0)
+		if err != nil {
+			t.Fatalf("query modules: %v", err)
+		}
+		if len(modules) != 4 {
+			t.Errorf("expected 4 module nodes, got %d", len(modules))
+		}
+
+		entities, err := repo.GetNodesByKind(db.NodeEntity, 1000, 0)
+		if err != nil {
+			t.Fatalf("query entities: %v", err)
+		}
+		if len(entities) != 2 {
+			t.Errorf("expected 2 entity nodes (User, Order), got %d", len(entities))
+		}
+
+		routes, err := repo.GetNodesByKind(db.NodeRoute, 1000, 0)
+		if err != nil {
+			t.Fatalf("query routes: %v", err)
+		}
+		if len(routes) < 1 {
+			t.Error("expected at least 1 route node")
+		}
+
+		t.Logf("Final counts: %d modules, %d entities, %d routes", len(modules), len(entities), len(routes))
+	})
 }

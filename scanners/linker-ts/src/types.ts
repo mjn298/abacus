@@ -49,10 +49,20 @@ export interface ScanStats {
   durationMs: number;
 }
 
+export interface ScanNode {
+  id: string;
+  kind: string;
+  name: string;
+  label: string;
+  source: string;
+  sourceFile?: string;
+  properties?: Record<string, unknown>;
+}
+
 export interface ScanOutput {
   version: 1;
   scanner: ScannerInfo;
-  nodes: never[];
+  nodes: ScanNode[];
   edges: ScanEdge[];
   warnings: ScanWarning[];
   stats: ScanStats;

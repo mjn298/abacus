@@ -1,6 +1,6 @@
 package db
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL CHECK(kind IN ('route','entity','page','action','permission')),
+    kind TEXT NOT NULL CHECK(kind IN ('route','entity','page','action','permission','module')),
     name TEXT NOT NULL,
     label TEXT NOT NULL DEFAULT '',
     properties TEXT NOT NULL DEFAULT '{}',
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS edges (
     id TEXT PRIMARY KEY,
     src_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     dst_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK(kind IN ('uses_route','touches_entity','on_page','requires_permission','relates_to','field_relation')),
+    kind TEXT NOT NULL CHECK(kind IN ('uses_route','touches_entity','on_page','requires_permission','relates_to','field_relation','delegates_to')),
     properties TEXT NOT NULL DEFAULT '{}',
     source_scanner TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
@@ -37,6 +37,7 @@ CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src_id);
 CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst_id);
 CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
 CREATE INDEX IF NOT EXISTS idx_edges_source_scanner ON edges(source_scanner);
+CREATE INDEX IF NOT EXISTS idx_edges_src_dst ON edges(src_id, dst_id);
 
 -- FTS5 virtual table for full-text search
 CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(

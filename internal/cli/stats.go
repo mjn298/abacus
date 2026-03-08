@@ -11,7 +11,7 @@ import (
 var statsCmd = &cobra.Command{
 	Use:   "stats",
 	Short: "Show graph statistics",
-	Long: `Display node counts grouped by kind (route, entity, page, action, permission).
+	Long: `Display node counts grouped by kind.
 
 Provides a quick overview of graph population after scanning.`,
 	Example: `  $ abacus stats
@@ -35,7 +35,7 @@ func statsRunE(cmd *cobra.Command, args []string) error {
 
 	repo := graph.NewGraphRepository(database)
 
-	kinds := []db.NodeKind{db.NodeRoute, db.NodeEntity, db.NodePage, db.NodeAction, db.NodePermission}
+	kinds := db.AllNodeKinds
 	stats := make(map[string]int)
 	total := 0
 

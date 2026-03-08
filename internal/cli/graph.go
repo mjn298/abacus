@@ -24,6 +24,7 @@ control how far the traversal extends from the starting node.`,
 
 func init() {
 	graphCmd.Flags().IntP("depth", "d", 2, "Maximum traversal depth")
+	graphCmd.Flags().StringSlice("edge-kinds", nil, "Filter traversal to specific edge kinds (comma-separated)")
 	rootCmd.AddCommand(graphCmd)
 }
 
@@ -46,7 +47,13 @@ func graphRunE(cmd *cobra.Command, args []string) error {
 
 	repo := graph.NewGraphRepository(database)
 
-	subgraph, err := repo.GetConnected(nodeID, depth)
+	edgeKindStrs, _ := cmd.Flags().GetStringSlice("edge-kinds")
+	var edgeKinds []db.EdgeKind
+	for _, k := range edgeKindStrs {
+		edgeKinds = append(edgeKinds, db.EdgeKind(k))
+	}
+
+	subgraph, err := repo.GetConnected(nodeID, depth, edgeKinds)
 	if err != nil {
 		return fmt.Errorf("getting connected subgraph: %w", err)
 	}

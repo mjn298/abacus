@@ -64,18 +64,18 @@ async function main(): Promise<void> {
       return;
     }
 
-    const result = processRoutes(routeNodes, entityByName, input.projectRoot, input.options);
+    const result = processRoutes(routeNodes, entityByName, input.projectRoot, input.options, input.ignorePaths);
     const durationMs = Date.now() - startTime;
 
     const output: ScanOutput = {
       version: 1,
       scanner: SCANNER_INFO,
-      nodes: [],
+      nodes: result.nodes,
       edges: result.edges,
       warnings: result.warnings,
       stats: {
         filesScanned: result.filesScanned,
-        nodesFound: 0,
+        nodesFound: result.nodes.length,
         edgesFound: result.edges.length,
         errors: result.warnings.filter((w: { severity: string }) => w.severity === "error").length,
         durationMs,

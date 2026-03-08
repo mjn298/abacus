@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
@@ -63,6 +64,7 @@ func InitSchema(db *sql.DB) error {
 			return fmt.Errorf("reading schema version: %w", err)
 		}
 		if version != schemaVersion {
+			fmt.Fprintf(os.Stderr, "WARNING: Schema upgraded v%d→v%d. All graph data cleared. Re-run 'abacus scan'.\n", version, schemaVersion)
 			// Schema version mismatch — drop all tables/triggers and recreate
 			dropStatements := []string{
 				"DROP TRIGGER IF EXISTS nodes_ai",

@@ -143,8 +143,9 @@ type StepInput struct {
 
 // GraphContextInput is the MCP tool input for getting connected subgraph.
 type GraphContextInput struct {
-	NodeID   string `json:"node_id" jsonschema:"required,ID of the center node"`
-	MaxDepth int    `json:"max_depth,omitempty" jsonschema:"max traversal depth, default 2"`
+	NodeID    string   `json:"node_id" jsonschema:"required,ID of the center node"`
+	MaxDepth  int      `json:"max_depth,omitempty" jsonschema:"max traversal depth, default 2"`
+	EdgeKinds []string `json:"edge_kinds,omitempty" jsonschema:"filter traversal to these edge kinds (e.g. delegates_to, touches_entity)"`
 }
 
 // StatsInput is the MCP tool input for graph statistics (empty).
@@ -175,6 +176,11 @@ func (s *AbacusServer) registerTools() {
 		Name:        "abacus.query_pages",
 		Description: "List or search page nodes in the application graph",
 	}, s.queryPagesHandler)
+
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "abacus.query_modules",
+		Description: "List or search module nodes (intermediate files in delegation chains)",
+	}, s.queryModulesHandler)
 
 	gomcp.AddTool(s.server, &gomcp.Tool{
 		Name:        "abacus.query_actions",
@@ -258,6 +264,10 @@ func (s *AbacusServer) queryEntitiesHandler(ctx context.Context, req *gomcp.Call
 
 func (s *AbacusServer) queryPagesHandler(ctx context.Context, req *gomcp.CallToolRequest, input QueryNodesInput) (*gomcp.CallToolResult, any, error) {
 	return s.queryNodesByKind(db.NodePage, input)
+}
+
+func (s *AbacusServer) queryModulesHandler(ctx context.Context, req *gomcp.CallToolRequest, input QueryNodesInput) (*gomcp.CallToolResult, any, error) {
+	return s.queryNodesByKind(db.NodeModule, input)
 }
 
 func (s *AbacusServer) queryNodesByKind(kind db.NodeKind, input QueryNodesInput) (*gomcp.CallToolResult, any, error) {
@@ -376,7 +386,12 @@ func (s *AbacusServer) graphContextHandler(ctx context.Context, req *gomcp.CallT
 		maxDepth = maxAllowedDepth
 	}
 
-	subgraph, err := s.repo.GetConnected(input.NodeID, maxDepth)
+	var edgeKinds []db.EdgeKind
+	for _, k := range input.EdgeKinds {
+		edgeKinds = append(edgeKinds, db.EdgeKind(k))
+	}
+
+	subgraph, err := s.repo.GetConnected(input.NodeID, maxDepth, edgeKinds)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get connected: %w", err)
 	}
@@ -390,7 +405,7 @@ func (s *AbacusServer) statsHandler(ctx context.Context, req *gomcp.CallToolRequ
 	}
 
 	stats := make(map[string]int)
-	for _, kind := range []db.NodeKind{db.NodeRoute, db.NodeEntity, db.NodePage, db.NodeAction, db.NodePermission} {
+	for _, kind := range db.AllNodeKinds {
 		stats[string(kind)] = counts[kind]
 	}
 

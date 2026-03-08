@@ -9,7 +9,11 @@ const (
 	NodePage       NodeKind = "page"
 	NodeAction     NodeKind = "action"
 	NodePermission NodeKind = "permission"
+	NodeModule     NodeKind = "module"
 )
+
+// AllNodeKinds is the single source of truth for all valid node kinds.
+var AllNodeKinds = []NodeKind{NodeRoute, NodeEntity, NodePage, NodeAction, NodePermission, NodeModule}
 
 // NodeSource indicates how a node was created.
 type NodeSource string
@@ -30,7 +34,11 @@ const (
 	EdgeRequiresPermission EdgeKind = "requires_permission"
 	EdgeRelatesTo          EdgeKind = "relates_to"
 	EdgeFieldRelation      EdgeKind = "field_relation"
+	EdgeDelegatesTo        EdgeKind = "delegates_to"
 )
+
+// AllEdgeKinds is the single source of truth for all valid edge kinds.
+var AllEdgeKinds = []EdgeKind{EdgeUsesRoute, EdgeTouchesEntity, EdgeOnPage, EdgeRequiresPermission, EdgeRelatesTo, EdgeFieldRelation, EdgeDelegatesTo}
 
 // GraphNode represents a node in the application graph.
 type GraphNode struct {

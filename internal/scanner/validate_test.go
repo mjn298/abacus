@@ -128,7 +128,7 @@ func TestValidateOutput_EdgeBrokenDstRef(t *testing.T) {
 }
 
 func TestValidateOutput_AllNodeKinds(t *testing.T) {
-	for _, kind := range []string{"route", "entity", "page", "action", "permission"} {
+	for _, kind := range []string{"route", "entity", "page", "action", "permission", "module"} {
 		out := &ScanOutput{
 			Version: 1,
 			Scanner: ScannerInfo{ID: "t", Name: "t", Version: "1"},
@@ -146,7 +146,7 @@ func TestValidateOutput_AllNodeKinds(t *testing.T) {
 func TestValidateOutput_AllEdgeKinds(t *testing.T) {
 	validEdgeKinds := []string{
 		"uses_route", "touches_entity", "on_page",
-		"requires_permission", "relates_to", "field_relation",
+		"requires_permission", "relates_to", "field_relation", "delegates_to",
 	}
 	for _, kind := range validEdgeKinds {
 		out := &ScanOutput{

@@ -274,25 +274,45 @@ const maxGetConnectedDepth = 50
 //
 // Callers should clamp maxDepth to a reasonable user-facing limit (e.g. 10).
 // As defense-in-depth, this function silently caps maxDepth at maxGetConnectedDepth.
-func (r *GraphRepository) GetConnected(nodeID string, maxDepth int) (*SubGraph, error) {
+func (r *GraphRepository) GetConnected(nodeID string, maxDepth int, edgeKinds []db.EdgeKind) (*SubGraph, error) {
 	if maxDepth > maxGetConnectedDepth {
 		maxDepth = maxGetConnectedDepth
 	}
 
+	// Build optional edge-kind filter clause
+	var kindFilter string
+	var kindArgs []any
+	if len(edgeKinds) > 0 {
+		placeholders := make([]string, len(edgeKinds))
+		for i, k := range edgeKinds {
+			placeholders[i] = "?"
+			kindArgs = append(kindArgs, string(k))
+		}
+		kindFilter = " AND e.kind IN (" + strings.Join(placeholders, ", ") + ")"
+	}
+
 	// Step 1: Find all connected node IDs using recursive CTE
-	nodeRows, err := r.database.Query(
+	cteQuery := fmt.Sprintf(
 		`WITH RECURSIVE connected(id, depth) AS (
 			VALUES(?, 0)
 			UNION
-			SELECT e.dst_id, c.depth + 1 FROM edges e JOIN connected c ON e.src_id = c.id WHERE c.depth < ?
+			SELECT e.dst_id, c.depth + 1 FROM edges e JOIN connected c ON e.src_id = c.id WHERE c.depth < ?%s
 			UNION
-			SELECT e.src_id, c.depth + 1 FROM edges e JOIN connected c ON e.dst_id = c.id WHERE c.depth < ?
+			SELECT e.src_id, c.depth + 1 FROM edges e JOIN connected c ON e.dst_id = c.id WHERE c.depth < ?%s
 		)
 		SELECT DISTINCT n.id, n.kind, n.name, n.label, n.properties, n.source,
 		       n.source_file, n.created_at, n.updated_at, n.scan_hash
 		FROM nodes n JOIN connected c ON n.id = c.id`,
-		nodeID, maxDepth, maxDepth,
+		kindFilter, kindFilter,
 	)
+
+	// Build args: nodeID, maxDepth, [kindArgs...], maxDepth, [kindArgs...]
+	args := []any{nodeID, maxDepth}
+	args = append(args, kindArgs...)
+	args = append(args, maxDepth)
+	args = append(args, kindArgs...)
+
+	nodeRows, err := r.database.Query(cteQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get connected nodes from %q: %w", nodeID, err)
 	}
@@ -308,13 +328,12 @@ func (r *GraphRepository) GetConnected(nodeID string, maxDepth int) (*SubGraph, 
 	}
 
 	// Step 2: Get edges where BOTH endpoints are in the connected set.
-	// Build IN-clause from the node IDs collected in step 1 (single CTE execution).
 	placeholders := make([]string, len(nodes))
-	args := make([]any, len(nodes)*2)
+	edgeArgs := make([]any, len(nodes)*2)
 	for i, n := range nodes {
 		placeholders[i] = "?"
-		args[i] = n.ID
-		args[len(nodes)+i] = n.ID
+		edgeArgs[i] = n.ID
+		edgeArgs[len(nodes)+i] = n.ID
 	}
 
 	inClause := strings.Join(placeholders, ", ")
@@ -325,7 +344,7 @@ func (r *GraphRepository) GetConnected(nodeID string, maxDepth int) (*SubGraph, 
 		inClause, inClause,
 	)
 
-	edgeRows, err := r.database.Query(edgeQuery, args...)
+	edgeRows, err := r.database.Query(edgeQuery, edgeArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("get connected edges from %q: %w", nodeID, err)
 	}

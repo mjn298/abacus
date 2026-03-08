@@ -98,7 +98,7 @@ func TestInitSchema_Idempotent(t *testing.T) {
 func TestNodeInsertAndSelect_AllKinds(t *testing.T) {
 	db := openAndInitTestDB(t)
 
-	kinds := []NodeKind{NodeRoute, NodeEntity, NodePage, NodeAction, NodePermission}
+	kinds := AllNodeKinds
 	for i, kind := range kinds {
 		id := fmt.Sprintf("node-%d", i)
 		name := fmt.Sprintf("test-%s", kind)

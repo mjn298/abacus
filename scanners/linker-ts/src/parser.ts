@@ -1,10 +1,27 @@
 import { existsSync } from "node:fs";
+import path from "node:path";
 import { resolve, join, basename, extname } from "node:path";
 import { Project, type SourceFile } from "ts-morph";
 import { traceImports, DEFAULT_MAX_DEPTH } from "./tracer.js";
-import type { ScanNodeRef, ScanEdge, ScanWarning } from "./types.js";
+import type { ScanNodeRef, ScanNode, ScanEdge, ScanWarning } from "./types.js";
+
+const INDEX_FILE_RE = /(?:^|[/\\])index\.(ts|tsx|js|jsx)$/;
+
+function filePathToModuleId(absPath: string, projectRoot: string): string {
+  let rel = path.relative(projectRoot, absPath);
+  rel = rel.replace(/\\/g, "/"); // Windows compat
+  rel = rel.replace(/\.(ts|tsx|js|jsx)$/, ""); // strip extension
+  return `module:${rel}`;
+}
+
+function isIgnored(relativePath: string, ignorePaths: string[]): boolean {
+  return ignorePaths.some(
+    (ip) => relativePath === ip || relativePath.startsWith(ip + "/"),
+  );
+}
 
 export interface ProcessRoutesResult {
+  nodes: ScanNode[];
   edges: ScanEdge[];
   warnings: ScanWarning[];
   filesScanned: number;
@@ -89,11 +106,17 @@ export function processRoutes(
   entityByName: Map<string, string>,
   projectRoot: string,
   options: { maxDepth?: number; tsConfigPath?: string; tsconfig?: string } = {},
+  ignorePaths: string[] = [],
 ): ProcessRoutesResult {
   const edges: ScanEdge[] = [];
   const warnings: ScanWarning[] = [];
   let filesScanned = 0;
   const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
+
+  // Module node and delegates_to edge tracking
+  const seenModules = new Set<string>();
+  const moduleNodes: ScanNode[] = [];
+  const delegatesEdges: ScanEdge[] = [];
 
   // --- Create ts-morph Project ---
   const rawTsConfig = options.tsConfigPath ?? options.tsconfig;
@@ -163,6 +186,7 @@ export function processRoutes(
         seenEdges.add(edgeKey);
         routesWithEdges.add(routeNodeId);
 
+        // Summary touches_entity edge (backward compat)
         edges.push({
           id: `edge:${edgeKey}`,
           srcId: routeNodeId,
@@ -170,6 +194,66 @@ export function processRoutes(
           kind: "touches_entity",
           properties: { tracePath, depth },
         });
+
+        // Emit module nodes and delegates_to chain
+        // Filter tracePath entries: skip [0] (route handler), index files, ignored paths
+        const chainFiles: string[] = [];
+        for (let i = 1; i < tracePath.length; i++) {
+          const absFile = tracePath[i];
+          if (INDEX_FILE_RE.test(absFile)) continue;
+          const relFile = path.relative(projectRoot, absFile).replace(/\\/g, "/");
+          if (isIgnored(relFile, ignorePaths)) continue;
+          chainFiles.push(absFile);
+        }
+
+        // Create module nodes for each chain file
+        for (const absFile of chainFiles) {
+          const moduleId = filePathToModuleId(absFile, projectRoot);
+          if (!seenModules.has(moduleId)) {
+            seenModules.add(moduleId);
+            const relFile = path.relative(projectRoot, absFile).replace(/\\/g, "/");
+            moduleNodes.push({
+              id: moduleId,
+              kind: "module",
+              name: moduleId.replace(/^module:/, ""),
+              label: moduleId.replace(/^module:/, ""),
+              source: "scan",
+              sourceFile: relFile,
+            });
+          }
+        }
+
+        // Build delegates_to chain: route -> module1 -> module2 -> ... -> entity
+        let prevId = routeNodeId;
+        for (const absFile of chainFiles) {
+          const moduleId = filePathToModuleId(absFile, projectRoot);
+          const delegateKey = `${prevId}-delegates_to-${moduleId}`;
+          if (!seenEdges.has(delegateKey)) {
+            seenEdges.add(delegateKey);
+            delegatesEdges.push({
+              id: `edge:${delegateKey}`,
+              srcId: prevId,
+              dstId: moduleId,
+              kind: "delegates_to",
+            });
+          }
+          prevId = moduleId;
+        }
+
+        // Last module -> entity touches_entity edge
+        if (chainFiles.length > 0) {
+          const lastModuleId = filePathToModuleId(chainFiles[chainFiles.length - 1], projectRoot);
+          const touchKey = `${lastModuleId}-touches_entity-${entityNodeId}`;
+          if (!seenEdges.has(touchKey)) {
+            seenEdges.add(touchKey);
+            delegatesEdges.push({
+              id: `edge:${touchKey}`,
+              srcId: lastModuleId,
+              dstId: entityNodeId,
+              kind: "touches_entity",
+            });
+          }
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -272,5 +356,5 @@ export function processRoutes(
     }
   }
 
-  return { edges, warnings, filesScanned };
+  return { nodes: moduleNodes, edges: [...edges, ...delegatesEdges], warnings, filesScanned };
 }

@@ -1,25 +1,28 @@
 package scanner
 
-import "fmt"
+import (
+	"fmt"
 
-// validNodeKinds is the set of allowed node kinds.
-var validNodeKinds = map[string]bool{
-	"route":      true,
-	"entity":     true,
-	"page":       true,
-	"action":     true,
-	"permission": true,
-}
+	"github.com/mjn/abacus/internal/db"
+)
 
-// validEdgeKinds is the set of allowed edge kinds.
-var validEdgeKinds = map[string]bool{
-	"uses_route":          true,
-	"touches_entity":      true,
-	"on_page":             true,
-	"requires_permission": true,
-	"relates_to":          true,
-	"field_relation":      true,
-}
+// validNodeKinds is derived from db.AllNodeKinds — single source of truth.
+var validNodeKinds = func() map[string]bool {
+	m := make(map[string]bool, len(db.AllNodeKinds))
+	for _, k := range db.AllNodeKinds {
+		m[string(k)] = true
+	}
+	return m
+}()
+
+// validEdgeKinds is derived from db.AllEdgeKinds — single source of truth.
+var validEdgeKinds = func() map[string]bool {
+	m := make(map[string]bool, len(db.AllEdgeKinds))
+	for _, k := range db.AllEdgeKinds {
+		m[string(k)] = true
+	}
+	return m
+}()
 
 // ValidateOutput checks a ScanOutput for protocol compliance and returns
 // a list of human-readable validation error strings. An empty slice means

@@ -80,7 +80,7 @@ func TestInsertNode_AllKinds(t *testing.T) {
 	database := setupTestDB(t)
 	repo := NewGraphRepository(database)
 
-	kinds := []db.NodeKind{db.NodeRoute, db.NodeEntity, db.NodePage, db.NodeAction, db.NodePermission}
+	kinds := []db.NodeKind{db.NodeRoute, db.NodeEntity, db.NodePage, db.NodeAction, db.NodePermission, db.NodeModule}
 	for i, kind := range kinds {
 		node := makeNode(fmt.Sprintf("n%d", i), kind)
 		if err := repo.InsertNode(node); err != nil {
@@ -691,7 +691,7 @@ func TestGetConnected_SimpleGraph(t *testing.T) {
 	repo.InsertEdge(&db.GraphEdge{ID: "e1", SrcID: "n1", DstID: "n2", Kind: db.EdgeUsesRoute})
 	repo.InsertEdge(&db.GraphEdge{ID: "e2", SrcID: "n2", DstID: "n3", Kind: db.EdgeOnPage})
 
-	sg, err := repo.GetConnected("n1", 3)
+	sg, err := repo.GetConnected("n1", 3, nil)
 	if err != nil {
 		t.Fatalf("GetConnected: %v", err)
 	}
@@ -715,7 +715,7 @@ func TestGetConnected_Bidirectional(t *testing.T) {
 	repo.InsertEdge(&db.GraphEdge{ID: "e1", SrcID: "n1", DstID: "n2", Kind: db.EdgeUsesRoute})
 	repo.InsertEdge(&db.GraphEdge{ID: "e2", SrcID: "n3", DstID: "n1", Kind: db.EdgeOnPage})
 
-	sg, err := repo.GetConnected("n1", 3)
+	sg, err := repo.GetConnected("n1", 3, nil)
 	if err != nil {
 		t.Fatalf("GetConnected: %v", err)
 	}
@@ -742,7 +742,7 @@ func TestGetConnected_DepthLimit(t *testing.T) {
 	}
 
 	// Depth 1: should get n1 + n2
-	sg, err := repo.GetConnected("n1", 1)
+	sg, err := repo.GetConnected("n1", 1, nil)
 	if err != nil {
 		t.Fatalf("GetConnected depth 1: %v", err)
 	}
@@ -751,7 +751,7 @@ func TestGetConnected_DepthLimit(t *testing.T) {
 	}
 
 	// Depth 2: should get n1 + n2 + n3
-	sg, err = repo.GetConnected("n1", 2)
+	sg, err = repo.GetConnected("n1", 2, nil)
 	if err != nil {
 		t.Fatalf("GetConnected depth 2: %v", err)
 	}
@@ -773,7 +773,7 @@ func TestGetConnected_HandlesCycles(t *testing.T) {
 	repo.InsertEdge(&db.GraphEdge{ID: "e2", SrcID: "n2", DstID: "n3", Kind: db.EdgeOnPage})
 	repo.InsertEdge(&db.GraphEdge{ID: "e3", SrcID: "n3", DstID: "n1", Kind: db.EdgeRelatesTo})
 
-	sg, err := repo.GetConnected("n1", 10)
+	sg, err := repo.GetConnected("n1", 10, nil)
 	if err != nil {
 		t.Fatalf("GetConnected with cycle: %v", err)
 	}
@@ -788,7 +788,7 @@ func TestGetConnected_IsolatedNode(t *testing.T) {
 
 	repo.InsertNode(makeNode("n1", db.NodeRoute))
 
-	sg, err := repo.GetConnected("n1", 3)
+	sg, err := repo.GetConnected("n1", 3, nil)
 	if err != nil {
 		t.Fatalf("GetConnected: %v", err)
 	}
@@ -1269,5 +1269,129 @@ func TestInsertNode_NilProperties(t *testing.T) {
 	}
 	if got.Properties == nil {
 		t.Error("Properties should not be nil after round-trip")
+	}
+}
+
+func TestInsertNode_ModuleKind(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	node := makeNode("m1", db.NodeModule)
+	if err := repo.InsertNode(node); err != nil {
+		t.Fatalf("InsertNode module: %v", err)
+	}
+	got, err := repo.GetNode("m1")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Kind != db.NodeModule {
+		t.Errorf("Kind = %q, want %q", got.Kind, db.NodeModule)
+	}
+}
+
+func TestInsertEdge_DelegatesToKind(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	repo.InsertNode(makeNode("r1", db.NodeRoute))
+	repo.InsertNode(makeNode("m1", db.NodeModule))
+
+	edge := &db.GraphEdge{ID: "e1", SrcID: "r1", DstID: "m1", Kind: db.EdgeDelegatesTo}
+	if err := repo.InsertEdge(edge); err != nil {
+		t.Fatalf("InsertEdge delegates_to: %v", err)
+	}
+	edges, err := repo.GetEdgesFrom("r1", nil)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].Kind != db.EdgeDelegatesTo {
+		t.Errorf("Kind = %q, want %q", edges[0].Kind, db.EdgeDelegatesTo)
+	}
+}
+
+func TestGetConnected_WithEdgeKindFilter(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	// Create graph: r1 -delegates_to-> m1 -delegates_to-> m2 -touches_entity-> e1
+	// Also: r1 -touches_entity-> e1 (summary edge)
+	repo.InsertNode(makeNode("r1", db.NodeRoute))
+	repo.InsertNode(makeNode("m1", db.NodeModule))
+	repo.InsertNode(makeNode("m2", db.NodeModule))
+	repo.InsertNode(makeNode("e1", db.NodeEntity))
+
+	repo.InsertEdge(&db.GraphEdge{ID: "e-dt1", SrcID: "r1", DstID: "m1", Kind: db.EdgeDelegatesTo})
+	repo.InsertEdge(&db.GraphEdge{ID: "e-dt2", SrcID: "m1", DstID: "m2", Kind: db.EdgeDelegatesTo})
+	repo.InsertEdge(&db.GraphEdge{ID: "e-te1", SrcID: "m2", DstID: "e1", Kind: db.EdgeTouchesEntity})
+	repo.InsertEdge(&db.GraphEdge{ID: "e-te2", SrcID: "r1", DstID: "e1", Kind: db.EdgeTouchesEntity})
+
+	// Without filter: should get all 4 nodes
+	sg, err := repo.GetConnected("r1", 5, nil)
+	if err != nil {
+		t.Fatalf("GetConnected no filter: %v", err)
+	}
+	if len(sg.Nodes) != 4 {
+		t.Errorf("no filter: expected 4 nodes, got %d", len(sg.Nodes))
+	}
+	if len(sg.Edges) != 4 {
+		t.Errorf("no filter: expected 4 edges, got %d", len(sg.Edges))
+	}
+
+	// With delegates_to filter only: should get r1, m1, m2 (not e1, since no delegates_to edge reaches e1)
+	sg, err = repo.GetConnected("r1", 5, []db.EdgeKind{db.EdgeDelegatesTo})
+	if err != nil {
+		t.Fatalf("GetConnected delegates_to filter: %v", err)
+	}
+	if len(sg.Nodes) != 3 {
+		t.Errorf("delegates_to filter: expected 3 nodes, got %d", len(sg.Nodes))
+	}
+
+	// With touches_entity filter only: should get r1, e1, and m2
+	// (r1 -touches_entity-> e1, m2 -touches_entity-> e1 reverse-traversed)
+	sg, err = repo.GetConnected("r1", 5, []db.EdgeKind{db.EdgeTouchesEntity})
+	if err != nil {
+		t.Fatalf("GetConnected touches_entity filter: %v", err)
+	}
+	if len(sg.Nodes) != 3 {
+		t.Errorf("touches_entity filter: expected 3 nodes, got %d", len(sg.Nodes))
+	}
+
+	// With both filters: should get all 4 nodes
+	sg, err = repo.GetConnected("r1", 5, []db.EdgeKind{db.EdgeDelegatesTo, db.EdgeTouchesEntity})
+	if err != nil {
+		t.Fatalf("GetConnected both filters: %v", err)
+	}
+	if len(sg.Nodes) != 4 {
+		t.Errorf("both filters: expected 4 nodes, got %d", len(sg.Nodes))
+	}
+}
+
+func TestGetConnected_WithEdgeKindFilter_BackwardCompat(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	repo.InsertNode(makeNode("n1", db.NodeRoute))
+	repo.InsertNode(makeNode("n2", db.NodeEntity))
+	repo.InsertEdge(&db.GraphEdge{ID: "e1", SrcID: "n1", DstID: "n2", Kind: db.EdgeUsesRoute})
+
+	// nil edgeKinds = no filter (backward compatible)
+	sg, err := repo.GetConnected("n1", 3, nil)
+	if err != nil {
+		t.Fatalf("GetConnected nil filter: %v", err)
+	}
+	if len(sg.Nodes) != 2 {
+		t.Errorf("nil filter: expected 2 nodes, got %d", len(sg.Nodes))
+	}
+
+	// Empty slice = no filter (backward compatible)
+	sg, err = repo.GetConnected("n1", 3, []db.EdgeKind{})
+	if err != nil {
+		t.Fatalf("GetConnected empty filter: %v", err)
+	}
+	if len(sg.Nodes) != 2 {
+		t.Errorf("empty filter: expected 2 nodes, got %d", len(sg.Nodes))
 	}
 }
