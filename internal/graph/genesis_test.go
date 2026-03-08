@@ -349,6 +349,69 @@ func TestGenesisNodeIDNotFound(t *testing.T) {
 	}
 }
 
+// --- Hub Node Filtering Tests ---
+
+func TestGenesisDelegationChainHubFiltering(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	// Set up a hub-node scenario:
+	//   route:A → delegates_to → module:hub → touches_entity → entity:E1 (relevant)
+	//   route:A → delegates_to → module:hub → touches_entity → entity:E2 (irrelevant)
+	sf := "src/hub.ts"
+	nodes := []*db.GraphNode{
+		{ID: "route:A", Kind: db.NodeRoute, Name: "GET /a", Label: "GET /a", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "module:hub", Kind: db.NodeModule, Name: "hub", Label: "hub", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:E1", Kind: db.NodeEntity, Name: "E1", Label: "E1", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:E2", Kind: db.NodeEntity, Name: "E2", Label: "E2", Source: db.SourceScan, SourceFile: &sf},
+	}
+	for _, n := range nodes {
+		if err := repo.InsertNode(n); err != nil {
+			t.Fatalf("InsertNode %s: %v", n.ID, err)
+		}
+	}
+
+	edges := []*db.GraphEdge{
+		{ID: "e-h1", SrcID: "route:A", DstID: "module:hub", Kind: db.EdgeDelegatesTo},
+		{ID: "e-h2", SrcID: "module:hub", DstID: "entity:E1", Kind: db.EdgeTouchesEntity},
+		{ID: "e-h3", SrcID: "module:hub", DstID: "entity:E2", Kind: db.EdgeTouchesEntity},
+	}
+	for _, e := range edges {
+		if err := repo.InsertEdge(e); err != nil {
+			t.Fatalf("InsertEdge %s: %v", e.ID, err)
+		}
+	}
+
+	svc := NewGenesisService(repo, &panicMatcher{})
+
+	// Query for entity E1 only — chains ending at E2 should be filtered out.
+	result, err := svc.Genesis(GenesisInput{NodeID: "entity:E1"})
+	if err != nil {
+		t.Fatalf("Genesis: %v", err)
+	}
+
+	// All chains must terminate at entity:E1 (the queried start node).
+	for i, chain := range result.DelegationChains {
+		terminal := chain[len(chain)-1]
+		if terminal != "entity:E1" {
+			t.Errorf("chain[%d] terminates at %q, want %q; chain = %v", i, terminal, "entity:E1", chain)
+		}
+	}
+
+	// We expect at least one chain: route:A → module:hub → entity:E1
+	if len(result.DelegationChains) == 0 {
+		t.Fatal("expected at least 1 delegation chain ending at entity:E1, got 0")
+	}
+
+	// Verify no chain ends at entity:E2 (the irrelevant hub target).
+	for i, chain := range result.DelegationChains {
+		terminal := chain[len(chain)-1]
+		if terminal == "entity:E2" {
+			t.Errorf("chain[%d] should have been filtered out (terminates at entity:E2): %v", i, chain)
+		}
+	}
+}
+
 // --- ExtractDelegationChains Tests ---
 
 func TestExtractDelegationChains(t *testing.T) {

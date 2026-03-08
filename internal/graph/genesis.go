@@ -179,6 +179,12 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 		return result, nil
 	}
 
+	// Build set of queried start nodes for post-filtering delegation chains.
+	startSet := make(map[string]bool, len(startNodeIDs))
+	for _, id := range startNodeIDs {
+		startSet[id] = true
+	}
+
 	// Traverse and merge subgraphs.
 	edgeKinds := []db.EdgeKind{db.EdgeDelegatesTo, db.EdgeTouchesEntity}
 
@@ -223,6 +229,17 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 		edges = append(edges, e)
 	}
 	result.DelegationChains = ExtractDelegationChains(nodes, edges)
+
+	// Filter chains to only those terminating at a queried start node.
+	// This prunes noise from hub nodes (e.g., authz middleware) that
+	// connect to every entity in the graph.
+	filtered := result.DelegationChains[:0]
+	for _, chain := range result.DelegationChains {
+		if len(chain) > 0 && startSet[chain[len(chain)-1]] {
+			filtered = append(filtered, chain)
+		}
+	}
+	result.DelegationChains = filtered
 
 	return result, nil
 }
