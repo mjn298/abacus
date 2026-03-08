@@ -65,6 +65,10 @@ const maxGenesisDepth = 10
 // maxChainLength caps delegation chain length to prevent pathological DFS.
 const maxChainLength = 20
 
+// maxGenesisEdgeFanout caps the number of inbound edges processed for entity
+// queries to prevent DoS from high-connectivity entities.
+const maxGenesisEdgeFanout = 50
+
 // GenesisService composes match, graph traversal, and categorization.
 type GenesisService struct {
 	repo    *GraphRepository
@@ -107,6 +111,14 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 
 	result := &GenesisResult{}
 	var startNodeIDs []string
+
+	// Declare before switch — entity case overrides this.
+	edgeKinds := []db.EdgeKind{db.EdgeDelegatesTo, db.EdgeTouchesEntity}
+
+	// entityTouchEdges holds the single-hop touches_entity edges found during
+	// entity-mode reverse lookup. These are injected into the subgraph after
+	// traversal so ExtractDelegationChains can terminate chains at the entity.
+	var entityTouchEdges []db.GraphEdge
 
 	switch {
 	case input.Step != "":
@@ -161,7 +173,38 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 		if len(results) == 0 {
 			return nil, fmt.Errorf("no entity found matching %q", input.Entity)
 		}
-		startNodeIDs = append(startNodeIDs, results[0].Node.ID)
+		entityNode := results[0].Node
+
+		// Reverse lookup: find nodes that directly touch this entity.
+		touchKind := db.EdgeTouchesEntity
+		touchingEdges, err := s.repo.GetEdgesTo(entityNode.ID, &touchKind)
+		if err != nil {
+			return nil, fmt.Errorf("genesis entity edges: %w", err)
+		}
+
+		// Cap fanout to prevent DoS from high-connectivity entities.
+		if len(touchingEdges) > maxGenesisEdgeFanout {
+			touchingEdges = touchingEdges[:maxGenesisEdgeFanout]
+		}
+
+		// Deduplicate source node IDs (same node may have multiple edges to entity).
+		seen := make(map[string]bool)
+		for _, e := range touchingEdges {
+			if !seen[e.SrcID] {
+				seen[e.SrcID] = true
+				startNodeIDs = append(startNodeIDs, e.SrcID)
+			}
+		}
+
+		// Include the entity itself so it appears in output.
+		startNodeIDs = append(startNodeIDs, entityNode.ID)
+
+		// Save touching edges for chain extraction (injected after traversal).
+		entityTouchEdges = touchingEdges
+
+		// Override: only traverse delegation chains, NOT touches_entity.
+		// touches_entity was already used above for the single-hop reverse lookup.
+		edgeKinds = []db.EdgeKind{db.EdgeDelegatesTo}
 
 	case input.NodeID != "":
 		node, err := s.repo.GetNode(input.NodeID)
@@ -186,8 +229,6 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 	}
 
 	// Traverse and merge subgraphs.
-	edgeKinds := []db.EdgeKind{db.EdgeDelegatesTo, db.EdgeTouchesEntity}
-
 	allNodes := make(map[string]db.GraphNode)
 	allEdges := make(map[string]db.GraphEdge)
 
@@ -202,6 +243,11 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 		for _, e := range sg.Edges {
 			allEdges[e.ID] = e
 		}
+	}
+
+	// Inject entity-mode touching edges so chains can terminate at the entity.
+	for _, e := range entityTouchEdges {
+		allEdges[e.ID] = e
 	}
 
 	// Categorize nodes into typed buckets.

@@ -412,6 +412,81 @@ func TestGenesisDelegationChainHubFiltering(t *testing.T) {
 	}
 }
 
+// --- Entity Hub Node Explosion Tests ---
+
+func TestGenesisEntityHubNodeExplosion(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	// Set up a hub-node scenario where module:Hub touches many entities,
+	// but we only query for entity:Target.
+	sf := "src/hub.ts"
+	nodes := []*db.GraphNode{
+		{ID: "entity:Target", Kind: db.NodeEntity, Name: "Target", Label: "Target", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:Noise1", Kind: db.NodeEntity, Name: "Noise1", Label: "Noise1", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:Noise2", Kind: db.NodeEntity, Name: "Noise2", Label: "Noise2", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:Noise3", Kind: db.NodeEntity, Name: "Noise3", Label: "Noise3", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:Noise4", Kind: db.NodeEntity, Name: "Noise4", Label: "Noise4", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:Noise5", Kind: db.NodeEntity, Name: "Noise5", Label: "Noise5", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "route:R1", Kind: db.NodeRoute, Name: "GET /r1", Label: "GET /r1", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "module:Hub", Kind: db.NodeModule, Name: "Hub", Label: "Hub", Source: db.SourceScan, SourceFile: &sf},
+	}
+	for _, n := range nodes {
+		if err := repo.InsertNode(n); err != nil {
+			t.Fatalf("InsertNode %s: %v", n.ID, err)
+		}
+	}
+
+	edges := []*db.GraphEdge{
+		{ID: "e-dt1", SrcID: "route:R1", DstID: "module:Hub", Kind: db.EdgeDelegatesTo},
+		{ID: "e-te-r1", SrcID: "route:R1", DstID: "entity:Target", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-hub-target", SrcID: "module:Hub", DstID: "entity:Target", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-hub-n1", SrcID: "module:Hub", DstID: "entity:Noise1", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-hub-n2", SrcID: "module:Hub", DstID: "entity:Noise2", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-hub-n3", SrcID: "module:Hub", DstID: "entity:Noise3", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-hub-n4", SrcID: "module:Hub", DstID: "entity:Noise4", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-hub-n5", SrcID: "module:Hub", DstID: "entity:Noise5", Kind: db.EdgeTouchesEntity},
+	}
+	for _, e := range edges {
+		if err := repo.InsertEdge(e); err != nil {
+			t.Fatalf("InsertEdge %s: %v", e.ID, err)
+		}
+	}
+
+	svc := NewGenesisService(repo, nil) // entity case doesn't use matcher
+
+	result, err := svc.Genesis(GenesisInput{Entity: "Target"})
+	if err != nil {
+		t.Fatalf("Genesis: %v", err)
+	}
+
+	// Entities should contain only Target, NOT Noise1-5.
+	for _, e := range result.Entities {
+		if e.ID != "entity:Target" {
+			t.Errorf("unexpected entity in result: %s (hub explosion leaked noise entities)", e.ID)
+		}
+	}
+	if len(result.Entities) != 1 {
+		t.Errorf("Entities count = %d, want 1 (only Target); got %v", len(result.Entities), result.Entities)
+	}
+
+	// Routes should contain only R1.
+	if len(result.Routes) != 1 {
+		t.Errorf("Routes count = %d, want 1; got %v", len(result.Routes), result.Routes)
+	}
+	if len(result.Routes) > 0 && result.Routes[0].ID != "route:R1" {
+		t.Errorf("Routes[0].ID = %q, want %q", result.Routes[0].ID, "route:R1")
+	}
+
+	// Modules should contain only Hub.
+	if len(result.Modules) != 1 {
+		t.Errorf("Modules count = %d, want 1; got %v", len(result.Modules), result.Modules)
+	}
+	if len(result.Modules) > 0 && result.Modules[0].ID != "module:Hub" {
+		t.Errorf("Modules[0].ID = %q, want %q", result.Modules[0].ID, "module:Hub")
+	}
+}
+
 // --- ExtractDelegationChains Tests ---
 
 func TestExtractDelegationChains(t *testing.T) {
