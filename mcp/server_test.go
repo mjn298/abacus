@@ -442,6 +442,32 @@ func TestGraphContextHandler_MaxDepthCapped(t *testing.T) {
 	}
 }
 
+func TestQueryRoutesHandler_LimitCapped(t *testing.T) {
+	srv := setupTestServer(t)
+	seedNodes(t, srv.repo)
+
+	ctx := context.Background()
+
+	// Request an absurdly high limit — should be clamped to maxAllowedLimit (500)
+	input := QueryNodesInput{Limit: 999999}
+	result, _, err := srv.queryRoutesHandler(ctx, nil, input)
+	if err != nil {
+		t.Fatalf("queryRoutes with high limit failed: %v", err)
+	}
+
+	// Just verify it returned successfully without hanging or OOM
+	text := result.Content[0].(*gomcp.TextContent).Text
+	var nodes []db.GraphNode
+	if err := json.Unmarshal([]byte(text), &nodes); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	// With a small test graph, limit 500 vs 999999 yields the same result,
+	// but the point is it didn't explode
+	if len(nodes) == 0 {
+		t.Error("expected at least 1 node in results")
+	}
+}
+
 func TestDefaultLimit(t *testing.T) {
 	srv := setupTestServer(t)
 	seedNodes(t, srv.repo)

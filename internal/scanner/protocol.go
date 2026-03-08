@@ -95,6 +95,39 @@ func ToGraphNodes(scanNodes []ScanNode) []db.GraphNode {
 	return graphNodes
 }
 
+// ToGraphEdges converts scanner output edges to graph database edges.
+func ToGraphEdges(scanEdges []ScanEdge) []db.GraphEdge {
+	graphEdges := make([]db.GraphEdge, len(scanEdges))
+	for i, se := range scanEdges {
+		graphEdges[i] = db.GraphEdge{
+			ID:         se.ID,
+			SrcID:      se.SrcID,
+			DstID:      se.DstID,
+			Kind:       db.EdgeKind(se.Kind),
+			Properties: se.Properties,
+		}
+	}
+	return graphEdges
+}
+
+// ToGraphEdgesWithSource converts scanner output edges to graph database edges,
+// setting SourceScanner on each edge for provenance tracking.
+func ToGraphEdgesWithSource(scanEdges []ScanEdge, sourceScanner string) []db.GraphEdge {
+	graphEdges := make([]db.GraphEdge, len(scanEdges))
+	for i, se := range scanEdges {
+		s := sourceScanner
+		graphEdges[i] = db.GraphEdge{
+			ID:            se.ID,
+			SrcID:         se.SrcID,
+			DstID:         se.DstID,
+			Kind:          db.EdgeKind(se.Kind),
+			Properties:    se.Properties,
+			SourceScanner: &s,
+		}
+	}
+	return graphEdges
+}
+
 // MergedScanOutput aggregates results from multiple scanner runs.
 type MergedScanOutput struct {
 	Nodes    []ScanNode

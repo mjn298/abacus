@@ -265,6 +265,9 @@ func (s *AbacusServer) queryNodesByKind(kind db.NodeKind, input QueryNodesInput)
 	if limit <= 0 {
 		limit = 50
 	}
+	if limit > maxAllowedLimit {
+		limit = maxAllowedLimit
+	}
 
 	if input.Query != "" {
 		results, err := s.repo.Search(input.Query, &kind, limit)
@@ -289,6 +292,9 @@ func (s *AbacusServer) queryActionsHandler(ctx context.Context, req *gomcp.CallT
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 50
+	}
+	if limit > maxAllowedLimit {
+		limit = maxAllowedLimit
 	}
 
 	if input.Query != "" {
@@ -359,6 +365,7 @@ func (s *AbacusServer) matchScenarioHandler(ctx context.Context, req *gomcp.Call
 }
 
 const maxAllowedDepth = 10
+const maxAllowedLimit = 500
 
 func (s *AbacusServer) graphContextHandler(ctx context.Context, req *gomcp.CallToolRequest, input GraphContextInput) (*gomcp.CallToolResult, any, error) {
 	maxDepth := input.MaxDepth
@@ -377,15 +384,14 @@ func (s *AbacusServer) graphContextHandler(ctx context.Context, req *gomcp.CallT
 }
 
 func (s *AbacusServer) statsHandler(ctx context.Context, req *gomcp.CallToolRequest, input StatsInput) (*gomcp.CallToolResult, any, error) {
-	kinds := []db.NodeKind{db.NodeRoute, db.NodeEntity, db.NodePage, db.NodeAction, db.NodePermission}
-	stats := make(map[string]int)
+	counts, err := s.repo.CountAllNodesByKind()
+	if err != nil {
+		return nil, nil, fmt.Errorf("count nodes: %w", err)
+	}
 
-	for _, kind := range kinds {
-		count, err := s.repo.CountNodesByKind(kind)
-		if err != nil {
-			return nil, nil, fmt.Errorf("count %s: %w", kind, err)
-		}
-		stats[string(kind)] = count
+	stats := make(map[string]int)
+	for _, kind := range []db.NodeKind{db.NodeRoute, db.NodeEntity, db.NodePage, db.NodeAction, db.NodePermission} {
+		stats[string(kind)] = counts[kind]
 	}
 
 	return jsonResult(stats)

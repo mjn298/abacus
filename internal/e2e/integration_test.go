@@ -151,17 +151,11 @@ func runScanPipeline(t *testing.T) (string, *graph.GraphRepository) {
 	t.Logf("Ingested %d nodes", nodesIngested)
 
 	// Ingest scan-phase edges
+	graphEdges := scanner.ToGraphEdges(allEdges)
 	edgesCreated := 0
-	for _, se := range allEdges {
-		edge := &db.GraphEdge{
-			ID:         se.ID,
-			SrcID:      se.SrcID,
-			DstID:      se.DstID,
-			Kind:       db.EdgeKind(se.Kind),
-			Properties: se.Properties,
-		}
-		if err := repo.InsertEdge(edge); err != nil {
-			t.Logf("warning: edge %s: %v", se.ID, err)
+	for _, edge := range graphEdges {
+		if err := repo.InsertEdge(&edge); err != nil {
+			t.Logf("warning: edge %s: %v", edge.ID, err)
 		} else {
 			edgesCreated++
 		}
@@ -207,18 +201,7 @@ func runScanPipeline(t *testing.T) (string, *graph.GraphRepository) {
 			t.Fatalf("delete stale edges for %s: %v", id, err)
 		}
 
-		linkEdges := make([]db.GraphEdge, len(out.Edges))
-		scannerID := id
-		for i, se := range out.Edges {
-			linkEdges[i] = db.GraphEdge{
-				ID:            se.ID,
-				SrcID:         se.SrcID,
-				DstID:         se.DstID,
-				Kind:          db.EdgeKind(se.Kind),
-				Properties:    se.Properties,
-				SourceScanner: &scannerID,
-			}
-		}
+		linkEdges := scanner.ToGraphEdgesWithSource(out.Edges, id)
 
 		linkerEdges, err := repo.BulkUpsertEdges(linkEdges)
 		if err != nil {

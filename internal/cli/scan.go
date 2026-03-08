@@ -165,18 +165,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if showProgress {
 		fmt.Fprintf(os.Stderr, "Ingesting %d edges...", len(merged.Edges))
 	}
+	graphEdges := scanner.ToGraphEdges(merged.Edges)
 	edgesCreated := 0
 	var warnings []string
-	for _, se := range merged.Edges {
-		edge := &db.GraphEdge{
-			ID:         se.ID,
-			SrcID:      se.SrcID,
-			DstID:      se.DstID,
-			Kind:       db.EdgeKind(se.Kind),
-			Properties: se.Properties,
-		}
-		if err := repo.InsertEdge(edge); err != nil {
-			warnings = append(warnings, fmt.Sprintf("edge %s: %v", se.ID, err))
+	for _, edge := range graphEdges {
+		if err := repo.InsertEdge(&edge); err != nil {
+			warnings = append(warnings, fmt.Sprintf("edge %s: %v", edge.ID, err))
 		} else {
 			edgesCreated++
 		}
@@ -260,18 +254,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("deleting stale edges for scanner %s: %w", id, err)
 			}
 
-			linkEdges := make([]db.GraphEdge, len(out.Edges))
-			for i, se := range out.Edges {
-				scannerID := id
-				linkEdges[i] = db.GraphEdge{
-					ID:            se.ID,
-					SrcID:         se.SrcID,
-					DstID:         se.DstID,
-					Kind:          db.EdgeKind(se.Kind),
-					Properties:    se.Properties,
-					SourceScanner: &scannerID,
-				}
-			}
+			linkEdges := scanner.ToGraphEdgesWithSource(out.Edges, id)
 
 			if showProgress {
 				fmt.Fprintf(os.Stderr, "Ingesting %d linker edges...", len(linkEdges))

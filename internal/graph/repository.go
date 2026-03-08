@@ -266,10 +266,19 @@ func (r *GraphRepository) Search(query string, kind *db.NodeKind, limit int) ([]
 	return results, nil
 }
 
+const maxGetConnectedDepth = 50
+
 // GetConnected returns the subgraph of all nodes reachable from the given
 // node ID within maxDepth hops, traversing edges in both directions.
 // Handles cycles via DISTINCT in the recursive CTE.
+//
+// Callers should clamp maxDepth to a reasonable user-facing limit (e.g. 10).
+// As defense-in-depth, this function silently caps maxDepth at maxGetConnectedDepth.
 func (r *GraphRepository) GetConnected(nodeID string, maxDepth int) (*SubGraph, error) {
+	if maxDepth > maxGetConnectedDepth {
+		maxDepth = maxGetConnectedDepth
+	}
+
 	// Step 1: Find all connected node IDs using recursive CTE
 	nodeRows, err := r.database.Query(
 		`WITH RECURSIVE connected(id, depth) AS (
@@ -298,27 +307,25 @@ func (r *GraphRepository) GetConnected(nodeID string, maxDepth int) (*SubGraph, 
 		return &SubGraph{}, nil
 	}
 
-	// Build a set of node IDs for edge filtering
-	nodeSet := make(map[string]bool, len(nodes))
-	for _, n := range nodes {
-		nodeSet[n.ID] = true
+	// Step 2: Get edges where BOTH endpoints are in the connected set.
+	// Build IN-clause from the node IDs collected in step 1 (single CTE execution).
+	placeholders := make([]string, len(nodes))
+	args := make([]any, len(nodes)*2)
+	for i, n := range nodes {
+		placeholders[i] = "?"
+		args[i] = n.ID
+		args[len(nodes)+i] = n.ID
 	}
 
-	// Step 2: Get all edges between the connected nodes
-	edgeRows, err := r.database.Query(
-		`WITH RECURSIVE connected(id, depth) AS (
-			VALUES(?, 0)
-			UNION
-			SELECT e.dst_id, c.depth + 1 FROM edges e JOIN connected c ON e.src_id = c.id WHERE c.depth < ?
-			UNION
-			SELECT e.src_id, c.depth + 1 FROM edges e JOIN connected c ON e.dst_id = c.id WHERE c.depth < ?
-		)
-		SELECT DISTINCT e.id, e.src_id, e.dst_id, e.kind, e.properties, e.source_scanner, e.created_at
-		FROM edges e
-		JOIN connected c1 ON e.src_id = c1.id
-		JOIN connected c2 ON e.dst_id = c2.id`,
-		nodeID, maxDepth, maxDepth,
+	inClause := strings.Join(placeholders, ", ")
+	edgeQuery := fmt.Sprintf(
+		`SELECT DISTINCT e.id, e.src_id, e.dst_id, e.kind, e.properties, e.source_scanner, e.created_at
+		 FROM edges e
+		 WHERE e.src_id IN (%s) AND e.dst_id IN (%s)`,
+		inClause, inClause,
 	)
+
+	edgeRows, err := r.database.Query(edgeQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get connected edges from %q: %w", nodeID, err)
 	}
@@ -454,6 +461,29 @@ func (r *GraphRepository) CountNodesByKind(kind db.NodeKind) (int, error) {
 		return 0, fmt.Errorf("count nodes by kind %q: %w", kind, err)
 	}
 	return count, nil
+}
+
+// CountAllNodesByKind returns a count of nodes for each kind in a single query.
+func (r *GraphRepository) CountAllNodesByKind() (map[db.NodeKind]int, error) {
+	rows, err := r.database.Query("SELECT kind, COUNT(*) FROM nodes GROUP BY kind")
+	if err != nil {
+		return nil, fmt.Errorf("count all nodes by kind: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[db.NodeKind]int)
+	for rows.Next() {
+		var kind string
+		var count int
+		if err := rows.Scan(&kind, &count); err != nil {
+			return nil, fmt.Errorf("scan count row: %w", err)
+		}
+		counts[db.NodeKind(kind)] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate count rows: %w", err)
+	}
+	return counts, nil
 }
 
 func (r *GraphRepository) GetNodeRefsByKinds(kinds []db.NodeKind) ([]scanner.ScanNodeRef, error) {
