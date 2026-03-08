@@ -1054,6 +1054,64 @@ func TestDeleteEdgesBySourceScanner_NoMatches(t *testing.T) {
 	}
 }
 
+// --- CountNodesByKind Tests ---
+
+func TestCountNodesByKind(t *testing.T) {
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	// Empty DB should return 0
+	count, err := repo.CountNodesByKind(db.NodeRoute)
+	if err != nil {
+		t.Fatalf("CountNodesByKind on empty DB: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 routes on empty DB, got %d", count)
+	}
+
+	// Insert nodes of different kinds
+	for i := 0; i < 5; i++ {
+		repo.InsertNode(makeNode(fmt.Sprintf("r%d", i), db.NodeRoute))
+	}
+	for i := 0; i < 3; i++ {
+		repo.InsertNode(makeNode(fmt.Sprintf("e%d", i), db.NodeEntity))
+	}
+	repo.InsertNode(makeNode("p0", db.NodePage))
+
+	// Verify counts per kind
+	count, err = repo.CountNodesByKind(db.NodeRoute)
+	if err != nil {
+		t.Fatalf("CountNodesByKind route: %v", err)
+	}
+	if count != 5 {
+		t.Errorf("expected 5 routes, got %d", count)
+	}
+
+	count, err = repo.CountNodesByKind(db.NodeEntity)
+	if err != nil {
+		t.Fatalf("CountNodesByKind entity: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("expected 3 entities, got %d", count)
+	}
+
+	count, err = repo.CountNodesByKind(db.NodePage)
+	if err != nil {
+		t.Fatalf("CountNodesByKind page: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 page, got %d", count)
+	}
+
+	count, err = repo.CountNodesByKind(db.NodeAction)
+	if err != nil {
+		t.Fatalf("CountNodesByKind action: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 actions, got %d", count)
+	}
+}
+
 // --- GetNodeRefsByKinds Tests ---
 
 func TestGetNodeRefsByKinds(t *testing.T) {

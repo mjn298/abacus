@@ -142,22 +142,7 @@ func runScanPipeline(t *testing.T) (string, *graph.GraphRepository) {
 	}
 
 	// Ingest scan-phase nodes
-	graphNodes := make([]db.GraphNode, len(allNodes))
-	for i, sn := range allNodes {
-		var sf *string
-		if sn.SourceFile != "" {
-			sf = &sn.SourceFile
-		}
-		graphNodes[i] = db.GraphNode{
-			ID:         sn.ID,
-			Kind:       db.NodeKind(sn.Kind),
-			Name:       sn.Name,
-			Label:      sn.Label,
-			Properties: sn.Properties,
-			Source:     db.NodeSource(sn.Source),
-			SourceFile: sf,
-		}
-	}
+	graphNodes := scanner.ToGraphNodes(allNodes)
 
 	nodesIngested, err := repo.BulkUpsertNodes(graphNodes)
 	if err != nil {

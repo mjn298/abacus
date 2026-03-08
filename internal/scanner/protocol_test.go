@@ -3,6 +3,8 @@ package scanner
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/mjn/abacus/internal/db"
 )
 
 func TestScanInput_ExistingNodes_JSON(t *testing.T) {
@@ -88,6 +90,28 @@ func TestScanNodeRef_NoProperties(t *testing.T) {
 	// Verify expected fields are present
 	if m["id"] != ref.ID || m["kind"] != ref.Kind || m["name"] != ref.Name {
 		t.Errorf("unexpected field values: %v", m)
+	}
+}
+
+func TestToGraphNodes(t *testing.T) {
+	scanNodes := []ScanNode{
+		{ID: "r1", Kind: "route", Name: "GET /users", Label: "List users", Source: "scan", SourceFile: "routes.ts", Properties: map[string]any{"method": "GET"}},
+		{ID: "e1", Kind: "entity", Name: "User", Label: "User model", Source: "scan", Properties: map[string]any{}},
+	}
+
+	result := ToGraphNodes(scanNodes)
+
+	if len(result) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(result))
+	}
+	if result[0].ID != "r1" || result[0].Kind != db.NodeRoute {
+		t.Errorf("node 0: got ID=%s Kind=%s", result[0].ID, result[0].Kind)
+	}
+	if result[0].SourceFile == nil || *result[0].SourceFile != "routes.ts" {
+		t.Error("node 0: expected SourceFile 'routes.ts'")
+	}
+	if result[1].SourceFile != nil {
+		t.Error("node 1: expected nil SourceFile for empty string")
 	}
 }
 

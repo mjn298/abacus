@@ -1,5 +1,7 @@
 package scanner
 
+import "github.com/mjn/abacus/internal/db"
+
 // ScanNodeRef is a lightweight node reference sent to link-phase scanners.
 // It intentionally excludes Properties to reduce payload size and avoid leaking scanner-extracted metadata.
 type ScanNodeRef struct {
@@ -70,6 +72,27 @@ type ScanStats struct {
 	EdgesFound   int   `json:"edgesFound"`
 	Errors       int   `json:"errors"`
 	DurationMs   int64 `json:"durationMs"`
+}
+
+// ToGraphNodes converts scanner output nodes to graph database nodes.
+func ToGraphNodes(scanNodes []ScanNode) []db.GraphNode {
+	graphNodes := make([]db.GraphNode, len(scanNodes))
+	for i, sn := range scanNodes {
+		var sf *string
+		if sn.SourceFile != "" {
+			sf = &sn.SourceFile
+		}
+		graphNodes[i] = db.GraphNode{
+			ID:         sn.ID,
+			Kind:       db.NodeKind(sn.Kind),
+			Name:       sn.Name,
+			Label:      sn.Label,
+			Properties: sn.Properties,
+			Source:     db.NodeSource(sn.Source),
+			SourceFile: sf,
+		}
+	}
+	return graphNodes
 }
 
 // MergedScanOutput aggregates results from multiple scanner runs.

@@ -230,22 +230,7 @@ func (s *AbacusServer) scanHandler(ctx context.Context, req *gomcp.CallToolReque
 	}
 
 	// Ingest nodes
-	graphNodes := make([]db.GraphNode, len(merged.Nodes))
-	for i, sn := range merged.Nodes {
-		var sf *string
-		if sn.SourceFile != "" {
-			sf = &sn.SourceFile
-		}
-		graphNodes[i] = db.GraphNode{
-			ID:         sn.ID,
-			Kind:       db.NodeKind(sn.Kind),
-			Name:       sn.Name,
-			Label:      sn.Label,
-			Properties: sn.Properties,
-			Source:     db.NodeSource(sn.Source),
-			SourceFile: sf,
-		}
-	}
+	graphNodes := scanner.ToGraphNodes(merged.Nodes)
 
 	count, err := s.repo.BulkUpsertNodes(graphNodes)
 	if err != nil {
@@ -373,10 +358,15 @@ func (s *AbacusServer) matchScenarioHandler(ctx context.Context, req *gomcp.Call
 	return jsonResult(results)
 }
 
+const maxAllowedDepth = 10
+
 func (s *AbacusServer) graphContextHandler(ctx context.Context, req *gomcp.CallToolRequest, input GraphContextInput) (*gomcp.CallToolResult, any, error) {
 	maxDepth := input.MaxDepth
 	if maxDepth <= 0 {
 		maxDepth = 2
+	}
+	if maxDepth > maxAllowedDepth {
+		maxDepth = maxAllowedDepth
 	}
 
 	subgraph, err := s.repo.GetConnected(input.NodeID, maxDepth)
@@ -391,11 +381,11 @@ func (s *AbacusServer) statsHandler(ctx context.Context, req *gomcp.CallToolRequ
 	stats := make(map[string]int)
 
 	for _, kind := range kinds {
-		nodes, err := s.repo.GetNodesByKind(kind, 100000, 0)
+		count, err := s.repo.CountNodesByKind(kind)
 		if err != nil {
 			return nil, nil, fmt.Errorf("count %s: %w", kind, err)
 		}
-		stats[string(kind)] = len(nodes)
+		stats[string(kind)] = count
 	}
 
 	return jsonResult(stats)

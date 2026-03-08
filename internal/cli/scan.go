@@ -148,22 +148,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	repo := graph.NewGraphRepository(database)
 
 	// Ingest scan-phase nodes
-	graphNodes := make([]db.GraphNode, len(merged.Nodes))
-	for i, sn := range merged.Nodes {
-		var sf *string
-		if sn.SourceFile != "" {
-			sf = &sn.SourceFile
-		}
-		graphNodes[i] = db.GraphNode{
-			ID:         sn.ID,
-			Kind:       db.NodeKind(sn.Kind),
-			Name:       sn.Name,
-			Label:      sn.Label,
-			Properties: sn.Properties,
-			Source:     db.NodeSource(sn.Source),
-			SourceFile: sf,
-		}
-	}
+	graphNodes := scanner.ToGraphNodes(merged.Nodes)
 
 	if showProgress {
 		fmt.Fprintf(os.Stderr, "Ingesting %d nodes...", len(graphNodes))

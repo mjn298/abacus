@@ -446,6 +446,16 @@ func (r *GraphRepository) DeleteEdgesBySourceScanner(sourceScanner string) (int,
 	return int(n), nil
 }
 
+// CountNodesByKind returns the number of nodes of the given kind.
+func (r *GraphRepository) CountNodesByKind(kind db.NodeKind) (int, error) {
+	var count int
+	err := r.database.QueryRow("SELECT COUNT(*) FROM nodes WHERE kind = ?", string(kind)).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count nodes by kind %q: %w", kind, err)
+	}
+	return count, nil
+}
+
 func (r *GraphRepository) GetNodeRefsByKinds(kinds []db.NodeKind) ([]scanner.ScanNodeRef, error) {
 	if len(kinds) == 0 {
 		return nil, nil

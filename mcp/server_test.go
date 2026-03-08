@@ -416,6 +416,32 @@ func TestStatsHandler(t *testing.T) {
 	}
 }
 
+func TestGraphContextHandler_MaxDepthCapped(t *testing.T) {
+	srv := setupTestServer(t)
+	seedNodes(t, srv.repo)
+
+	ctx := context.Background()
+
+	// Request an absurdly high max_depth — should be clamped to maxAllowedDepth (10)
+	input := GraphContextInput{NodeID: "route:get-users", MaxDepth: 999}
+	result, _, err := srv.graphContextHandler(ctx, nil, input)
+	if err != nil {
+		t.Fatalf("graphContext with high depth failed: %v", err)
+	}
+
+	// Just verify it returned successfully without hanging or OOM
+	text := result.Content[0].(*gomcp.TextContent).Text
+	var subgraph graph.SubGraph
+	if err := json.Unmarshal([]byte(text), &subgraph); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	// With a small test graph, depth 10 vs 999 yields the same result,
+	// but the point is it didn't explode
+	if len(subgraph.Nodes) == 0 {
+		t.Error("expected at least 1 node in subgraph")
+	}
+}
+
 func TestDefaultLimit(t *testing.T) {
 	srv := setupTestServer(t)
 	seedNodes(t, srv.repo)
