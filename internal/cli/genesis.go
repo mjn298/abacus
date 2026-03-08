@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mjn/abacus/internal/db"
@@ -34,6 +35,7 @@ func init() {
 	genesisCmd.Flags().String("entity", "", "Entity name to show implementation pattern for")
 	genesisCmd.Flags().String("node", "", "Node ID to traverse from directly")
 	genesisCmd.Flags().IntP("depth", "d", 5, "Maximum traversal depth")
+	genesisCmd.Flags().BoolP("verbose", "v", false, "Show progress messages")
 	rootCmd.AddCommand(genesisCmd)
 }
 
@@ -43,6 +45,7 @@ func genesisRunE(cmd *cobra.Command, args []string) error {
 	entityFlag, _ := cmd.Flags().GetString("entity")
 	nodeFlag, _ := cmd.Flags().GetString("node")
 	depthFlag, _ := cmd.Flags().GetInt("depth")
+	verbose, _ := cmd.Flags().GetBool("verbose")
 
 	// Determine input mode.
 	var stepText string
@@ -54,11 +57,19 @@ func genesisRunE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("provide step text as argument, or use --entity or --node")
 	}
 
+	if verbose {
+		fmt.Fprintf(os.Stderr, "Opening database...\n")
+	}
+
 	database, err := db.OpenDB(dbPath)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
 	defer database.Close()
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "Loading action index...\n")
+	}
 
 	repo := graph.NewGraphRepository(database)
 	actions := graph.NewActionService(repo)
@@ -73,9 +84,24 @@ func genesisRunE(cmd *cobra.Command, args []string) error {
 		Depth:  depthFlag,
 	}
 
+	if verbose {
+		switch {
+		case entityFlag != "":
+			fmt.Fprintf(os.Stderr, "Resolving entity %q (depth %d)...\n", entityFlag, depthFlag)
+		case nodeFlag != "":
+			fmt.Fprintf(os.Stderr, "Resolving node %q (depth %d)...\n", nodeFlag, depthFlag)
+		default:
+			fmt.Fprintf(os.Stderr, "Resolving step %q (depth %d)...\n", stepText, depthFlag)
+		}
+	}
+
 	result, err := svc.Genesis(input)
 	if err != nil {
 		return fmt.Errorf("genesis: %w", err)
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "Done.\n")
 	}
 
 	if jsonFlag {
