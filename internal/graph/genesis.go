@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mjn/abacus/internal/db"
 )
@@ -187,10 +188,14 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 			touchingEdges = touchingEdges[:maxGenesisEdgeFanout]
 		}
 
-		// Deduplicate source node IDs (same node may have multiple edges to entity).
+		// Only use route nodes as traversal seeds. Modules (like authz
+		// middleware) would pull in every route that delegates to them via
+		// backward traversal, recreating the hub-node explosion. Modules
+		// are discovered organically through forward delegates_to traversal
+		// from routes.
 		seen := make(map[string]bool)
 		for _, e := range touchingEdges {
-			if !seen[e.SrcID] {
+			if !seen[e.SrcID] && strings.HasPrefix(e.SrcID, "route:") {
 				seen[e.SrcID] = true
 				startNodeIDs = append(startNodeIDs, e.SrcID)
 			}
