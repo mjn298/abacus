@@ -553,6 +553,248 @@ export function handle() { return testUtil(); }`,
     const result = traceImports(handler, entityByName);
     expect(result.entities.has("entity:User")).toBe(false);
   });
+
+  describe("barrel import filtering", () => {
+    it("filters entities to only those reachable from imported bindings (re-export barrel)", () => {
+      const project = new Project({ useInMemoryFileSystem: true });
+
+      project.createSourceFile(
+        "/src/services/user.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class UserService { getUser() { return prisma.user.findUnique({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/post.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class PostService { getPosts() { return prisma.post.findMany({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/comment.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class CommentService { getComments() { return prisma.comment.findMany({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/index.ts",
+        `import { UserService } from './user.service';
+import { PostService } from './post.service';
+import { CommentService } from './comment.service';
+export { UserService, PostService, CommentService };`,
+      );
+
+      const handler = project.createSourceFile(
+        "/src/handler.ts",
+        `import { UserService } from './services/index';
+const svc = new UserService();
+export function handler() { return svc.getUser(); }`,
+      );
+
+      const result = traceImports(handler, entityByName);
+      expect(result.entities.size).toBe(1);
+      expect(result.entities.has("entity:User")).toBe(true);
+    });
+
+    it("filters entities through factory barrel destructured exports", () => {
+      const project = new Project({ useInMemoryFileSystem: true });
+
+      project.createSourceFile(
+        "/src/repos/user.repo.ts",
+        `import { PrismaClient } from '@prisma/client';
+export function createUserRepo(prisma: PrismaClient) { return { find: () => prisma.user.findUnique({}) }; }`,
+      );
+
+      project.createSourceFile(
+        "/src/repos/post.repo.ts",
+        `import { PrismaClient } from '@prisma/client';
+export function createPostRepo(prisma: PrismaClient) { return { find: () => prisma.post.findMany({}) }; }`,
+      );
+
+      project.createSourceFile(
+        "/src/repos/index.ts",
+        `import { PrismaClient } from '@prisma/client';
+import { createUserRepo } from './user.repo';
+import { createPostRepo } from './post.repo';
+const prisma = new PrismaClient();
+function buildRepos(p: PrismaClient) { return { userRepository: createUserRepo(p), postRepository: createPostRepo(p) }; }
+const _repos = buildRepos(prisma);
+export const { userRepository, postRepository } = _repos;`,
+      );
+
+      const handler = project.createSourceFile(
+        "/src/handler.ts",
+        `import { userRepository } from './repos/index';
+export function handler() { return userRepository.find(); }`,
+      );
+
+      const result = traceImports(handler, entityByName);
+      expect(result.entities.size).toBe(1);
+      expect(result.entities.has("entity:User")).toBe(true);
+    });
+
+    it("returns all entities for namespace import (no filtering possible)", () => {
+      const project = new Project({ useInMemoryFileSystem: true });
+
+      project.createSourceFile(
+        "/src/services/user.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class UserService { getUser() { return prisma.user.findUnique({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/post.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class PostService { getPosts() { return prisma.post.findMany({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/comment.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class CommentService { getComments() { return prisma.comment.findMany({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/index.ts",
+        `import { UserService } from './user.service';
+import { PostService } from './post.service';
+import { CommentService } from './comment.service';
+export { UserService, PostService, CommentService };`,
+      );
+
+      const handler = project.createSourceFile(
+        "/src/handler.ts",
+        `import * as services from './services/index';
+export function handler() { const svc = new services.UserService(); return svc.getUser(); }`,
+      );
+
+      const result = traceImports(handler, entityByName);
+      expect(result.entities.size).toBe(3);
+    });
+
+    it("direct import chain without barrel returns correct entities", () => {
+      const project = new Project({ useInMemoryFileSystem: true });
+
+      project.createSourceFile(
+        "/src/repo.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export function findUser() { return prisma.user.findUnique({}); }`,
+      );
+
+      project.createSourceFile(
+        "/src/service.ts",
+        `import { findUser } from './repo';
+export function getUser() { return findUser(); }`,
+      );
+
+      const handler = project.createSourceFile(
+        "/src/handler.ts",
+        `import { getUser } from './service';
+export function handler() { return getUser(); }`,
+      );
+
+      const result = traceImports(handler, entityByName);
+      expect(result.entities.has("entity:User")).toBe(true);
+      expect(result.entities.size).toBe(1);
+    });
+
+    it("shared cache returns correct entities per binding set", () => {
+      const project = new Project({ useInMemoryFileSystem: true });
+
+      project.createSourceFile(
+        "/src/services/user.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class UserService { getUser() { return prisma.user.findUnique({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/post.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class PostService { getPosts() { return prisma.post.findMany({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/index.ts",
+        `import { UserService } from './user.service';
+import { PostService } from './post.service';
+export { UserService, PostService };`,
+      );
+
+      const handlerA = project.createSourceFile(
+        "/src/handlerA.ts",
+        `import { UserService } from './services/index';
+export function handler() { const svc = new UserService(); return svc.getUser(); }`,
+      );
+
+      const handlerB = project.createSourceFile(
+        "/src/handlerB.ts",
+        `import { PostService } from './services/index';
+export function handler() { const svc = new PostService(); return svc.getPosts(); }`,
+      );
+
+      const cache = new Map<string, { entities: Set<string>; remainingDepth: number }>();
+      const resultA = traceImports(handlerA, entityByName, {}, cache);
+      const resultB = traceImports(handlerB, entityByName, {}, cache);
+
+      expect(resultA.entities.size).toBe(1);
+      expect(resultA.entities.has("entity:User")).toBe(true);
+      expect(resultB.entities.size).toBe(1);
+      expect(resultB.entities.has("entity:Post")).toBe(true);
+    });
+
+    it("diamond: two routes importing same binding from barrel get same entities", () => {
+      const project = new Project({ useInMemoryFileSystem: true });
+
+      project.createSourceFile(
+        "/src/services/user.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class UserService { getUser() { return prisma.user.findUnique({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/post.service.ts",
+        `import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+export class PostService { getPosts() { return prisma.post.findMany({}); } }`,
+      );
+
+      project.createSourceFile(
+        "/src/services/index.ts",
+        `import { UserService } from './user.service';
+import { PostService } from './post.service';
+export { UserService, PostService };`,
+      );
+
+      const handlerA = project.createSourceFile(
+        "/src/handlerA.ts",
+        `import { UserService } from './services/index';
+export function handler() { const svc = new UserService(); return svc.getUser(); }`,
+      );
+
+      const handlerB = project.createSourceFile(
+        "/src/handlerB.ts",
+        `import { UserService } from './services/index';
+export function handler() { const svc = new UserService(); return svc.getUser(); }`,
+      );
+
+      const cache = new Map<string, { entities: Set<string>; remainingDepth: number }>();
+      const resultA = traceImports(handlerA, entityByName, {}, cache);
+      const resultB = traceImports(handlerB, entityByName, {}, cache);
+
+      expect(resultA.entities.has("entity:User")).toBe(true);
+      expect(resultB.entities.has("entity:User")).toBe(true);
+    });
+  });
 });
 
 describe("reverse-import handler resolution", () => {

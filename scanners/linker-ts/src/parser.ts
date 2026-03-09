@@ -192,7 +192,7 @@ export function processRoutes(
           srcId: routeNodeId,
           dstId: entityNodeId,
           kind: "touches_entity",
-          properties: { tracePath, depth },
+          properties: { tracePath: tracePath.map(p => path.relative(projectRoot, p)), depth },
         });
 
         // Emit module nodes and delegates_to chain
@@ -337,7 +337,7 @@ export function processRoutes(
                 dstId: entityNodeId,
                 kind: "touches_entity",
                 properties: {
-                  tracePath,
+                  tracePath: tracePath.map(p => path.relative(projectRoot, p)),
                   depth,
                   resolvedVia: "reverse-import",
                 },
