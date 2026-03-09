@@ -56,6 +56,9 @@
 {"created_at":"2026-03-08T16:36:40Z","created_by":"mjn","depends_on_id":"aba-msf.2","issue_id":"aba-msf.2.6","type":"parent-child"}
 {"created_at":"2026-03-08T16:36:43Z","created_by":"mjn","depends_on_id":"aba-msf.2","issue_id":"aba-msf.2.7","type":"parent-child"}
 {"created_at":"2026-03-08T16:36:48Z","created_by":"mjn","depends_on_id":"aba-msf.2","issue_id":"aba-msf.2.8","type":"parent-child"}
+{"created_at":"2026-03-09T00:42:47Z","created_by":"mjn","depends_on_id":"aba-qst","issue_id":"aba-qst.1","type":"parent-child"}
+{"created_at":"2026-03-09T00:43:06Z","created_by":"mjn","depends_on_id":"aba-qst","issue_id":"aba-qst.2","type":"parent-child"}
+{"created_at":"2026-03-09T00:43:06Z","created_by":"mjn","depends_on_id":"aba-qst.1","issue_id":"aba-qst.2","type":"blocks"}
 {"created_at":"2026-03-08T14:39:55Z","created_by":"mjn","depends_on_id":"aba-msf","issue_id":"aba-tto","type":"relates-to"}
 {"created_at":"2026-03-08T22:17:45Z","created_by":"mjn","depends_on_id":"aba-yk8","issue_id":"aba-yk8.1","type":"parent-child"}
 {"created_at":"2026-03-06T15:50:18Z","created_by":"mjn","depends_on_id":"aba-zca","issue_id":"aba-zca.1","type":"parent-child"}
