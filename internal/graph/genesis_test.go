@@ -487,6 +487,131 @@ func TestGenesisEntityHubNodeExplosion(t *testing.T) {
 	}
 }
 
+// --- Entity Forward-Only Traversal Tests ---
+
+func TestGenesisEntitySharedModuleNoLeak(t *testing.T) {
+	// Setup: route:A and route:B both delegate to module:M.
+	// route:A touches entity:Target, route:B touches entity:Other.
+	// Query for entity:Target should NOT include route:B.
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	sf := "src/shared.ts"
+	nodes := []*db.GraphNode{
+		{ID: "route:A", Kind: db.NodeRoute, Name: "GET /a", Label: "GET /a", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "route:B", Kind: db.NodeRoute, Name: "GET /b", Label: "GET /b", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "module:M", Kind: db.NodeModule, Name: "shared-module", Label: "shared-module", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:Target", Kind: db.NodeEntity, Name: "Target", Label: "Target", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:Other", Kind: db.NodeEntity, Name: "Other", Label: "Other", Source: db.SourceScan, SourceFile: &sf},
+	}
+	for _, n := range nodes {
+		if err := repo.InsertNode(n); err != nil {
+			t.Fatalf("InsertNode %s: %v", n.ID, err)
+		}
+	}
+
+	edges := []*db.GraphEdge{
+		{ID: "e-dt-a-m", SrcID: "route:A", DstID: "module:M", Kind: db.EdgeDelegatesTo},
+		{ID: "e-dt-b-m", SrcID: "route:B", DstID: "module:M", Kind: db.EdgeDelegatesTo},
+		{ID: "e-te-m-target", SrcID: "module:M", DstID: "entity:Target", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-m-other", SrcID: "module:M", DstID: "entity:Other", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-a-target", SrcID: "route:A", DstID: "entity:Target", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-b-other", SrcID: "route:B", DstID: "entity:Other", Kind: db.EdgeTouchesEntity},
+	}
+	for _, e := range edges {
+		if err := repo.InsertEdge(e); err != nil {
+			t.Fatalf("InsertEdge %s: %v", e.ID, err)
+		}
+	}
+
+	svc := NewGenesisService(repo, &panicMatcher{})
+
+	result, err := svc.Genesis(GenesisInput{Entity: "Target"})
+	if err != nil {
+		t.Fatalf("Genesis: %v", err)
+	}
+
+	// Only route:A should appear, NOT route:B.
+	for _, r := range result.Routes {
+		if r.ID == "route:B" {
+			t.Errorf("route:B leaked into results through shared module (bidirectional traversal bug)")
+		}
+	}
+	if len(result.Routes) != 1 {
+		t.Errorf("Routes count = %d, want 1; got %v", len(result.Routes), result.Routes)
+	}
+	if len(result.Routes) > 0 && result.Routes[0].ID != "route:A" {
+		t.Errorf("Routes[0].ID = %q, want %q", result.Routes[0].ID, "route:A")
+	}
+
+	// Module:M should still be discovered via forward traversal from route:A.
+	if len(result.Modules) != 1 {
+		t.Errorf("Modules count = %d, want 1; got %v", len(result.Modules), result.Modules)
+	}
+}
+
+func TestGenesisEntityMultipleSeedsSharedModule(t *testing.T) {
+	// Setup: route:A and route:C both touch entity:Target and delegate to module:M.
+	// route:B also delegates to module:M but touches entity:Other.
+	// Query for entity:Target should include route:A and route:C, NOT route:B.
+	database := setupTestDB(t)
+	repo := NewGraphRepository(database)
+
+	sf := "src/multi.ts"
+	nodes := []*db.GraphNode{
+		{ID: "route:A", Kind: db.NodeRoute, Name: "GET /a", Label: "GET /a", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "route:B", Kind: db.NodeRoute, Name: "GET /b", Label: "GET /b", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "route:C", Kind: db.NodeRoute, Name: "GET /c", Label: "GET /c", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "module:M", Kind: db.NodeModule, Name: "shared-module", Label: "shared-module", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:Target", Kind: db.NodeEntity, Name: "Target", Label: "Target", Source: db.SourceScan, SourceFile: &sf},
+		{ID: "entity:Other", Kind: db.NodeEntity, Name: "Other", Label: "Other", Source: db.SourceScan, SourceFile: &sf},
+	}
+	for _, n := range nodes {
+		if err := repo.InsertNode(n); err != nil {
+			t.Fatalf("InsertNode %s: %v", n.ID, err)
+		}
+	}
+
+	edges := []*db.GraphEdge{
+		{ID: "e-dt-a-m", SrcID: "route:A", DstID: "module:M", Kind: db.EdgeDelegatesTo},
+		{ID: "e-dt-b-m", SrcID: "route:B", DstID: "module:M", Kind: db.EdgeDelegatesTo},
+		{ID: "e-dt-c-m", SrcID: "route:C", DstID: "module:M", Kind: db.EdgeDelegatesTo},
+		{ID: "e-te-a-target", SrcID: "route:A", DstID: "entity:Target", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-b-other", SrcID: "route:B", DstID: "entity:Other", Kind: db.EdgeTouchesEntity},
+		{ID: "e-te-c-target", SrcID: "route:C", DstID: "entity:Target", Kind: db.EdgeTouchesEntity},
+	}
+	for _, e := range edges {
+		if err := repo.InsertEdge(e); err != nil {
+			t.Fatalf("InsertEdge %s: %v", e.ID, err)
+		}
+	}
+
+	svc := NewGenesisService(repo, &panicMatcher{})
+
+	result, err := svc.Genesis(GenesisInput{Entity: "Target"})
+	if err != nil {
+		t.Fatalf("Genesis: %v", err)
+	}
+
+	// Both route:A and route:C should appear, NOT route:B.
+	routeIDs := make(map[string]bool)
+	for _, r := range result.Routes {
+		routeIDs[r.ID] = true
+	}
+	if !routeIDs["route:A"] {
+		t.Error("expected route:A in results")
+	}
+	if !routeIDs["route:C"] {
+		t.Error("expected route:C in results")
+	}
+	if routeIDs["route:B"] {
+		t.Error("route:B leaked into results through shared module")
+	}
+	if len(result.Routes) != 2 {
+		t.Errorf("Routes count = %d, want 2; got %v", len(result.Routes), result.Routes)
+	}
+}
+
 // --- ExtractDelegationChains Tests ---
 
 func TestExtractDelegationChains(t *testing.T) {

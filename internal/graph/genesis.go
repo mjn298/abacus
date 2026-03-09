@@ -237,16 +237,56 @@ func (s *GenesisService) Genesis(input GenesisInput) (*GenesisResult, error) {
 	allNodes := make(map[string]db.GraphNode)
 	allEdges := make(map[string]db.GraphEdge)
 
-	for _, nodeID := range startNodeIDs {
-		sg, err := s.repo.GetConnected(nodeID, input.Depth, edgeKinds)
-		if err != nil {
-			return nil, fmt.Errorf("genesis traverse from %s: %w", nodeID, err)
+	// For entity mode, use forward-only BFS to avoid pulling in
+	// unrelated routes through shared modules via backward traversal.
+	if input.Entity != "" {
+		delegatesTo := db.EdgeDelegatesTo
+		type bfsItem struct {
+			id    string
+			depth int
 		}
-		for _, n := range sg.Nodes {
-			allNodes[n.ID] = n
+		queue := make([]bfsItem, 0, len(startNodeIDs))
+		for _, id := range startNodeIDs {
+			queue = append(queue, bfsItem{id: id, depth: 0})
 		}
-		for _, e := range sg.Edges {
-			allEdges[e.ID] = e
+		visited := make(map[string]bool)
+		for i := 0; i < len(queue); i++ {
+			item := queue[i]
+			if visited[item.id] || item.depth > input.Depth {
+				continue
+			}
+			visited[item.id] = true
+			node, err := s.repo.GetNode(item.id)
+			if err != nil {
+				return nil, fmt.Errorf("genesis entity traverse: %w", err)
+			}
+			if node != nil {
+				allNodes[node.ID] = *node
+			}
+			edges, err := s.repo.GetEdgesFrom(item.id, &delegatesTo)
+			if err != nil {
+				return nil, fmt.Errorf("genesis entity edges from %s: %w", item.id, err)
+			}
+			for _, e := range edges {
+				allEdges[e.ID] = e
+				if !visited[e.DstID] {
+					queue = append(queue, bfsItem{id: e.DstID, depth: item.depth + 1})
+				}
+			}
+		}
+	} else {
+		// Step mode and nodeID mode: use bidirectional GetConnected.
+		for _, nodeID := range startNodeIDs {
+			sg, err := s.repo.GetConnected(nodeID, input.Depth, edgeKinds)
+			if err != nil {
+				return nil, fmt.Errorf("genesis traverse from %s: %w", nodeID, err)
+			}
+			for _, n := range sg.Nodes {
+				allNodes[n.ID] = n
+			}
+			for _, e := range sg.Edges {
+				allEdges[e.ID] = e
+			}
 		}
 	}
 
